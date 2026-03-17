@@ -12,7 +12,8 @@ const appState = {
   agents: [],
   localModels: [],
   isOllamaOnline: false,
-  editingAgentId: null
+  editingAgentId: null,
+  backendUrl: 'http://localhost:3001/api'
 };
 
 // Colors for agents
@@ -43,12 +44,8 @@ async function init() {
     statusIndicator.querySelector('span:last-child').textContent = 'Ollama Offline';
   }
 
-  // 2. Load basic dummy agent if any (or leave empty)
-  // Normally would load from localStorage
-  const savedAgents = localStorage.getItem('ollamaclip_agents');
-  if(savedAgents) {
-      appState.agents = JSON.parse(savedAgents);
-  }
+  // 2. Sync with Filesystem (Source of Truth)
+  await syncAgentsWithFileSystem();
 
   // 3. Bind Navigation
   navItems.forEach(item => {
@@ -163,14 +160,47 @@ function openAgentWizard(agentId = null) {
     modalOverlay.classList.add('active');
 }
 
-function deleteAgent(id) {
+async function deleteAgent(id) {
     const agent = appState.agents.find(a => a.id === id);
     if (!agent) return;
 
     if (confirm(`Are you sure you want to delete the agent '${agent.name}'?`)) {
+        // 1. Local State
         appState.agents = appState.agents.filter(a => a.id !== id);
         localStorage.setItem('ollamaclip_agents', JSON.stringify(appState.agents));
+        
+        // 2. Physical File
+        try {
+            await fetch(`${appState.backendUrl}/delete-agent`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name: agent.name, role: agent.role })
+            });
+        } catch(e) {
+            console.warn("Failed to delete physical file:", e);
+        }
+
         updateView();
+    }
+}
+
+async function syncAgentsWithFileSystem() {
+    try {
+        const response = await fetch(`${appState.backendUrl}/load-agents`);
+        if (response.ok) {
+            const physicalAgents = await response.json();
+            if (physicalAgents && physicalAgents.length > 0) {
+                appState.agents = physicalAgents;
+                localStorage.setItem('ollamaclip_agents', JSON.stringify(appState.agents));
+            }
+        }
+    } catch(e) {
+        console.warn("Backend bridge not running. Using localStorage only.");
+        // Fallback to localStorage
+        const savedAgents = localStorage.getItem('ollamaclip_agents');
+        if(savedAgents) {
+            appState.agents = JSON.parse(savedAgents);
+        }
     }
 }
 
@@ -225,6 +255,13 @@ if(btnSaveAgent) {
 
         localStorage.setItem('ollamaclip_agents', JSON.stringify(appState.agents));
         
+        // 3. Physical Persistence (Async)
+        fetch(`${appState.backendUrl}/save-agent`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(appState.editingAgentId ? appState.agents.find(a => a.id === appState.editingAgentId) : appState.agents[appState.agents.length - 1])
+        }).catch(e => console.error("FileSystem sync failed:", e));
+
         closeAgentWizard();
         updateView();
     });
