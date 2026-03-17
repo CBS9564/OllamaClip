@@ -6,7 +6,7 @@ export function renderAgents(container, agents, onEdit, onDelete) {
     if (!tpl) return;
 
     const clone = tpl.content.cloneNode(true);
-    const grid = clone.getElementById('agents-grid');
+    const grid = clone.querySelector('#agents-grid');
 
     if (agents.length === 0) {
         grid.innerHTML = '<p class="empty-state" style="grid-column: 1/-1; padding: 48px;">No agents configured yet. Use the "New Agent" button to get started.</p>';
@@ -43,6 +43,15 @@ export function renderAgents(container, agents, onEdit, onDelete) {
                     </div>
                 </div>
 
+                <!-- Deletion Overlay -->
+                <div class="delete-overlay" style="display: none; position: absolute; inset: 0; background: rgba(15, 23, 42, 0.95); backdrop-filter: blur(4px); z-index: 10; flex-direction: column; align-items: center; justify-content: center; padding: 20px; text-align: center; border-radius: inherit;">
+                    <p style="margin-bottom: 16px; font-weight: 500;">Delete this agent?</p>
+                    <div style="display: flex; gap: 12px;">
+                        <button class="btn btn-secondary btn-cancel-delete" style="padding: 6px 12px; font-size: 0.85rem;">Cancel</button>
+                        <button class="btn btn-primary btn-confirm-delete" style="background: var(--danger); border-color: var(--danger); padding: 6px 12px; font-size: 0.85rem;">Delete</button>
+                    </div>
+                </div>
+
                 <div style="display: flex; flex-direction: column; gap: 8px;">
                     <div style="display: flex; align-items: center; gap: 8px; font-size: 0.85rem;">
                         <i class="ph ph-cpu" style="color: var(--text-muted);"></i>
@@ -71,7 +80,21 @@ export function renderAgents(container, agents, onEdit, onDelete) {
             btnEdit.addEventListener('click', () => onEdit(agent.id));
 
             const btnDelete = card.querySelector('.btn-delete-agent');
-            btnDelete.addEventListener('click', () => onDelete(agent.id));
+            const overlay = card.querySelector('.delete-overlay');
+            const btnCancel = card.querySelector('.btn-cancel-delete');
+            const btnConfirm = card.querySelector('.btn-confirm-delete');
+
+            btnDelete.addEventListener('click', () => {
+                overlay.style.display = 'flex';
+            });
+
+            btnCancel.addEventListener('click', () => {
+                overlay.style.display = 'none';
+            });
+
+            btnConfirm.addEventListener('click', () => {
+                onDelete(agent.id);
+            });
 
             grid.appendChild(card);
         });

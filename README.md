@@ -13,13 +13,16 @@ OllamaClip is a high-performance, lightweight web-based orchestration platform f
 - **Task Management System**: A dedicated UI to create tasks, assign them to specific agents in your workforce, and track their completion status.
 - **Shared Workspace Memory & Mentions (V3)**: All agents collaborate in a single, persistent Chat Workspace. Use `@AgentName` in your messages to summon specific models into the flow, equipped with zero-shot context switching and VRAM optimization (`keep_alive`).
 - **Interactive Dashboard & Model Manager (V5)**: Track active agents and manage local models. **Delete** models to free up space or **Pull** new ones directly from the Ollama Hub with real-time download progress.
-- **Advanced Agent Management (V6)**: 
-    - Full **Visual Agent Builder** Modal (replaces simple prompts).
+- **Advanced Agent Management (V6/V7)**: 
+    - Full **Visual Agent Builder** Modal.
     - Advanced parameters: Tuning of **Temperature** and **Context Size** per agent.
-    - Custom **Accent Colors** for personalization.
-    - Dedicated **Agents Management** grid with Edit and Delete support.
-- **Persistent Local Memory**: All configurations, agents, chat histories, and tasks are stored strictly in `localStorage`, persisting across reloads while maintaining privacy.
-- **Settings & Configuration (V4)**: Modify your Ollama Base URL for remote instances, control model VRAM retention durations, and manage local data securely.
+    - **Robust Deletion**: Custom inline confirmation UI for safer agent removal.
+- **V7: File-Based Persistence (Markdown)**: 
+    - Every agent is mirrored as a physical `.md` file in the `Agent/` directory.
+    - Allows manual editing and easy backups of your AI workforce.
+    - Synchronizes internal state with the filesystem on every launch.
+- **Local Persistence Bridge**: A built-in Node.js Express server handles secure local file operations, ensuring data sovereignty and privacy.
+- **Settings & Configuration (V4)**: Modify your Ollama Base URL, control model VRAM retention, and manage local data.
 
 ## Prerequisites
 
@@ -40,10 +43,13 @@ OllamaClip is a high-performance, lightweight web-based orchestration platform f
     npm install
     ```
 
-3.  **Start the Development Server**:
+3.  **Start the Application**:
+    This project uses `concurrently` to run both the Vite frontend and the Node.js persistence bridge simultaneously.
     ```bash
     npm run dev
     ```
+    - **Vite**: Serves the frontend on `http://localhost:5173`.
+    - **Node Server**: Runs the persistence bridge on `http://localhost:3001`.
 
 4.  **Open the Application**:
     Vite will start a local server (usually `http://localhost:5173` or `http://localhost:5174`). Open this URL in your web browser.

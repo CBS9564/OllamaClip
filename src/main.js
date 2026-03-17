@@ -65,7 +65,7 @@ async function init() {
   });
 
   // 4. Bind New Agent Button
-  btnNewAgent.addEventListener('click', openAgentWizard);
+  btnNewAgent.addEventListener('click', () => openAgentWizard());
 
   // 5. Initial Render
   updateView();
@@ -164,43 +164,64 @@ async function deleteAgent(id) {
     const agent = appState.agents.find(a => a.id === id);
     if (!agent) return;
 
-    if (confirm(`Are you sure you want to delete the agent '${agent.name}'?`)) {
-        // 1. Local State
-        appState.agents = appState.agents.filter(a => a.id !== id);
-        localStorage.setItem('ollamaclip_agents', JSON.stringify(appState.agents));
-        
-        // 2. Physical File
-        try {
-            await fetch(`${appState.backendUrl}/delete-agent`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ name: agent.name, role: agent.role })
-            });
-        } catch(e) {
-            console.warn("Failed to delete physical file:", e);
-        }
-
-        updateView();
+    // 1. Local State
+    appState.agents = appState.agents.filter(a => a.id !== id);
+    localStorage.setItem('ollamaclip_agents', JSON.stringify(appState.agents));
+    
+    // 2. Physical File
+    try {
+        await fetch(`${appState.backendUrl}/delete-agent`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ 
+                name: agent.name, 
+                role: agent.role,
+                filename: agent.filename 
+            })
+        });
+    } catch(e) {
+        console.warn("Failed to delete physical file:", e);
     }
+
+    updateView();
 }
 
 async function syncAgentsWithFileSystem() {
+    // 1. Load from localStorage as fallback
+    const savedAgents = localStorage.getItem('ollamaclip_agents');
+    if(savedAgents) {
+        appState.agents = JSON.parse(savedAgents);
+    }
+
     try {
         const response = await fetch(`${appState.backendUrl}/load-agents`);
         if (response.ok) {
             const physicalAgents = await response.json();
+            
             if (physicalAgents && physicalAgents.length > 0) {
+                // If we have physical agents, they take priority
                 appState.agents = physicalAgents;
                 localStorage.setItem('ollamaclip_agents', JSON.stringify(appState.agents));
+            } else if (appState.agents.length > 0) {
+                // MIGRATION: If physical is empty but we have local agents, 
+                // push them to the backend to create the files
+                console.log("[Persistence] Migrating local agents to physical files...");
+                for (const agent of appState.agents) {
+                    // Safety: Valid ID check
+                    if (!agent.id || agent.id === 'undefined' || agent.id === 'null') {
+                        agent.id = "agent-" + Date.now().toString();
+                    }
+                    console.log(`[Persistence] Migrating ${agent.name}...`);
+                    fetch(`${appState.backendUrl}/save-agent`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(agent)
+                    }).catch(e => console.warn("Migration failed for:", agent.name, e));
+                }
             }
         }
     } catch(e) {
-        console.warn("Backend bridge not running. Using localStorage only.");
-        // Fallback to localStorage
-        const savedAgents = localStorage.getItem('ollamaclip_agents');
-        if(savedAgents) {
-            appState.agents = JSON.parse(savedAgents);
-        }
+        console.warn("Backend bridge not running. Staying in Local-Only mode.");
     }
 }
 
@@ -238,31 +259,42 @@ if(btnSaveAgent) {
             }
         };
 
+        // State Update
+        let targetAgent;
         if (appState.editingAgentId) {
-            // Update existing
             const index = appState.agents.findIndex(a => a.id === appState.editingAgentId);
             if (index !== -1) {
                 appState.agents[index] = { ...appState.agents[index], ...agentData };
+                targetAgent = appState.agents[index];
             }
         } else {
-            // Create new
-            const newAgent = {
-                id: Date.now().toString(),
+            targetAgent = {
+                id: "agent-" + Date.now().toString(),
                 ...agentData
             };
-            appState.agents.push(newAgent);
+            appState.agents.push(targetAgent);
         }
 
-        localStorage.setItem('ollamaclip_agents', JSON.stringify(appState.agents));
-        
-        // 3. Physical Persistence (Async)
-        fetch(`${appState.backendUrl}/save-agent`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(appState.editingAgentId ? appState.agents.find(a => a.id === appState.editingAgentId) : appState.agents[appState.agents.length - 1])
-        }).catch(e => console.error("FileSystem sync failed:", e));
+        console.log("[State] Saving agent to memory:", targetAgent);
 
+        // 1. Persistence - Local
+        localStorage.setItem('ollamaclip_agents', JSON.stringify(appState.agents));
+
+        // 2. Persistence - Physical (Internal Bridge)
+        if (targetAgent) {
+            fetch(`${appState.backendUrl}/save-agent`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(targetAgent)
+            })
+            .then(res => res.json())
+            .then(data => console.log("[Persistence] Physical sync successful:", data.filename))
+            .catch(e => console.error("[Persistence] Physical sync failed:", e));
+        }
+
+        // 3. UI Update
         closeAgentWizard();
+        appState.editingAgentId = null; 
         updateView();
     });
 }
