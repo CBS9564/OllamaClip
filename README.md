@@ -11,7 +11,8 @@ OllamaClip is a high-performance, lightweight web-based orchestration platform f
 - **Native Ollama Integration**: Connects directly to `http://localhost:11434` without intermediate servers, retrieving available models dynamically and streaming chat responses in real time.
 - **Agent Orchestration**: Create AI agents and assign them specific roles, system prompts, and individual local models (e.g., Llama 3 for coding, Mistral for copy).
 - **Task Management System**: A dedicated UI to create tasks, assign them to specific agents in your workforce, and track their completion status.
-- **Shared Workspace Memory & Mentions (V3)**: All agents collaborate in a single, persistent Chat Workspace. Use `@AgentName` in your messages to summon specific models into the flow, equipped with zero-shot context switching and VRAM optimization (`keep_alive`).
+- **Agent Collaboration & Global Inbox (V11):** Per-agent isolated chat histories and a shared workspace with `@mention` auto-triggering.
+- **Enhanced Inbox (V12):** Task flagging in messages, global unread counters in sidebar, and chat history management.
 - **Interactive Dashboard & Model Manager (V5)**: Track active agents and manage local models. **Delete** models to free up space or **Pull** new ones directly from the Ollama Hub with real-time download progress.
 - **Advanced Agent Management (V6/V7)**: 
     - Full **Visual Agent Builder** Modal.

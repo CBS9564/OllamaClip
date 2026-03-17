@@ -95,6 +95,16 @@ export class HeartbeatManager {
                 if (this.onProactiveMessage) {
                     this.onProactiveMessage(agent, fullReply);
                 }
+
+                // Global event for chat UI to catch and flag with task
+                window.dispatchEvent(new CustomEvent('ollamaclip_new_message', {
+                    detail: { 
+                        agent: agent, 
+                        message: fullReply,
+                        taskId: task.id,
+                        taskTitle: task.title
+                    }
+                }));
             }
         );
     }
@@ -105,7 +115,6 @@ export class HeartbeatManager {
         if (idx !== -1) {
             tasks[idx].status = status;
             localStorage.setItem('ollamaclip_tasks', JSON.stringify(tasks));
-            // Trigger a custom event so UI can refresh if needed
             window.dispatchEvent(new CustomEvent('ollamaclip_tasks_updated'));
         }
     }

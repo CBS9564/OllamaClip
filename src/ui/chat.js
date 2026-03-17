@@ -21,8 +21,7 @@ export function renderChat(container, agents) {
     // ----------------------------------------------------
     const getHistoryKey = (agentId) => agentId ? `ollamaclip_history_${agentId}` : 'ollamaclip_shared_workspace';
 
-    // Append a message to the UI
-    const appendMessage = (role, text, agentName = null, agentColor = 'var(--accent-primary)', isProactive = false) => {
+    const appendMessage = (role, text, agentName = null, agentColor = 'var(--accent-primary)', isProactive = false, taskTitle = null) => {
         const msgDiv = document.createElement('div');
         msgDiv.className = `message ${role} ${isProactive ? 'proactive' : ''}`;
         
@@ -31,7 +30,11 @@ export function renderChat(container, agents) {
         } else {
             let nameTag = '';
             if (role === 'agent' && agentName) {
-                nameTag = `<div style="font-size: 0.7rem; color: ${agentColor}; margin-bottom: 4px; font-weight: 600;"><i class="ph-fill ph-robot"></i> ${agentName}</div>`;
+                const taskTag = taskTitle ? `<span class="task-flag"><i class="ph ph-briefcase"></i> ${taskTitle}</span>` : '';
+                nameTag = `<div style="display:flex; justify-content:space-between; align-items:center; font-size: 0.7rem; margin-bottom: 4px; font-weight: 600;">
+                                <span style="color: ${agentColor}"><i class="ph-fill ph-robot"></i> ${agentName}</span>
+                                ${taskTag}
+                           </div>`;
             }
 
             const bgColor = role === 'user' ? 'var(--accent-primary)' : 
@@ -65,7 +68,7 @@ export function renderChat(container, agents) {
                    // Skip system prompts in UI
                 } else if (msg.role === 'assistant') {
                     const label = msg.isProactive ? `${msg.agentName} (Proactive)` : msg.agentName;
-                    appendMessage('agent', msg.content, label, msg.agentColor, msg.isProactive);
+                    appendMessage('agent', msg.content, label, msg.agentColor, msg.isProactive, msg.taskTitle);
                 } else {
                     appendMessage('user', msg.content);
                 }
@@ -74,7 +77,20 @@ export function renderChat(container, agents) {
             chatHistory = [];
             appendMessage('system', agentId ? `This is your private workspace with ${currentAgent.name}.` : 'Welcome to the Global Workspace. All agents can see this.');
         }
+        
+        // Clear unread for this specific channel
+        clearUnread(agentId);
         messagesContainer.scrollTop = messagesContainer.scrollHeight;
+    };
+
+    const clearUnread = (agentId) => {
+        const key = agentId || 'global';
+        const unreads = JSON.parse(localStorage.getItem('ollamaclip_unreads') || '{}');
+        if (unreads[key]) {
+            delete unreads[key];
+            localStorage.setItem('ollamaclip_unreads', JSON.stringify(unreads));
+            window.dispatchEvent(new CustomEvent('ollamaclip_unread_updated'));
+        }
     };
 
     const saveChatHistory = (agentId) => {
@@ -89,10 +105,31 @@ export function renderChat(container, agents) {
 
     // Live update listener for Heartbeat messages
     window._onProactiveMessage = (e) => {
-        const { agent, message } = e.detail;
-        appendMessage('agent', message, `${agent.name} (Proactive)`, agent.color, true);
+        const { agent, message, taskId, taskTitle } = e.detail;
+        
+        // If we are currently viewing the Inbox AND either in Global OR the specific agent's thread
+        if (!currentAgent || currentAgent.id === agent.id) {
+            appendMessage('agent', message, `${agent.name} (Proactive)`, agent.color, true, taskTitle);
+            clearUnread(currentAgent ? currentAgent.id : null);
+        }
     };
     window.addEventListener('ollamaclip_new_message', window._onProactiveMessage);
+
+    // Add Clear Chat button to Header
+    const chatHeader = clone.querySelector('.chat-header');
+    const clearBtn = document.createElement('button');
+    clearBtn.className = 'btn btn-secondary btn-sm';
+    clearBtn.innerHTML = '<i class="ph ph-trash"></i> Clear Chat';
+    clearBtn.style.padding = '4px 8px';
+    clearBtn.style.fontSize = '0.75rem';
+    clearBtn.addEventListener('click', () => {
+        if (confirm("Clear this conversation history?")) {
+            chatHistory = [];
+            saveChatHistory(currentAgent ? currentAgent.id : null);
+            loadChatHistory(currentAgent ? currentAgent.id : null);
+        }
+    });
+    chatHeader.appendChild(clearBtn);
 
     // Initial Load (Global Inbox by default)
     loadChatHistory(null);
@@ -101,49 +138,71 @@ export function renderChat(container, agents) {
     messagesContainer.scrollTop = messagesContainer.scrollHeight;
 
     // Populate Agent List
-    agentList.innerHTML = '';
-    
-    // 1. Add Global Inbox
-    const globalBtn = document.createElement('button');
-    globalBtn.className = `nav-item ${!currentAgent ? 'active' : ''}`;
-    globalBtn.innerHTML = `<i class="ph-fill ph-globe" style="color:var(--accent-primary)"></i> <div style="display:flex; flex-direction:column; align-items:flex-start"><span>Global Inbox</span><span style="font-size:0.7rem; color:var(--text-muted)">Group Collaboration</span></div>`;
-    globalBtn.addEventListener('click', () => {
-        Array.from(agentList.children).forEach(c => c.classList.remove('active'));
-        globalBtn.classList.add('active');
-        currentAgent = null;
-        currentAgentName.textContent = "Global Inbox";
-        currentAgentModel.textContent = "Multi-Agent Collaboration";
-        inputArea.placeholder = "Message the whole team (use @AgentName to target)...";
-        inputArea.disabled = false;
-        btnSend.disabled = false;
-        loadChatHistory(null);
-    });
-    agentList.appendChild(globalBtn);
-
-    // 2. Individual Agents
-    if (agents.length > 0) {
-        agents.forEach(agent => {
-            const btn = document.createElement('button');
-            btn.className = `nav-item ${currentAgent && currentAgent.id === agent.id ? 'active' : ''}`;
-            btn.innerHTML = `<i class="ph-fill ph-robot" style="color:${agent.color}"></i> <div style="display:flex; flex-direction:column; align-items:flex-start"><span>${agent.name}</span><span style="font-size:0.7rem; color:var(--text-muted)">${agent.model}</span></div>`;
-            
-            btn.addEventListener('click', () => {
-                Array.from(agentList.children).forEach(c => c.classList.remove('active'));
-                btn.classList.add('active');
-                currentAgent = agent;
-                currentAgentName.textContent = agent.name;
-                currentAgentModel.textContent = agent.model;
-                inputArea.placeholder = `Message ${agent.name} (private)...`;
-                loadChatHistory(agent.id);
-                inputArea.disabled = false;
-                btnSend.disabled = false;
-            });
-            agentList.appendChild(btn);
+    const renderAgentList = () => {
+        const unreads = JSON.parse(localStorage.getItem('ollamaclip_unreads') || '{}');
+        agentList.innerHTML = '';
+        
+        // 1. Add Global Inbox
+        const globalUnread = unreads['global'] ? `<span class="unread-badge">${unreads['global']}</span>` : '';
+        const globalBtn = document.createElement('button');
+        globalBtn.className = `nav-item ${!currentAgent ? 'active' : ''}`;
+        globalBtn.innerHTML = `
+            <div style="display:flex; gap:12px; align-items:center">
+                <i class="ph-fill ph-globe" style="color:var(--accent-primary)"></i>
+                <div style="display:flex; flex-direction:column; align-items:flex-start">
+                    <span>Global Inbox</span>
+                    <span style="font-size:0.7rem; color:var(--text-muted)">Group Collaboration</span>
+                </div>
+            </div>
+            ${globalUnread}`;
+        globalBtn.addEventListener('click', () => {
+            currentAgent = null;
+            renderAgentList(); // re-render to update active state
+            currentAgentName.textContent = "Global Inbox";
+            currentAgentModel.textContent = "Multi-Agent Collaboration";
+            inputArea.placeholder = "Message the whole team (use @AgentName to target)...";
+            inputArea.disabled = false;
+            btnSend.disabled = false;
+            loadChatHistory(null);
         });
-    }
+        agentList.appendChild(globalBtn);
 
-    // Initial Load
-    loadChatHistory(currentAgent ? currentAgent.id : null);
+        // 2. Individual Agents
+        if (agents.length > 0) {
+            agents.forEach(agent => {
+                const unreadCount = unreads[agent.id] ? `<span class="unread-badge">${unreads[agent.id]}</span>` : '';
+                const btn = document.createElement('button');
+                btn.className = `nav-item ${currentAgent && currentAgent.id === agent.id ? 'active' : ''}`;
+                btn.innerHTML = `
+                    <div style="display:flex; gap:12px; align-items:center">
+                        <i class="ph-fill ph-robot" style="color:${agent.color}"></i>
+                        <div style="display:flex; flex-direction:column; align-items:flex-start">
+                            <span>${agent.name}</span>
+                            <span style="font-size:0.7rem; color:var(--text-muted)">${agent.model}</span>
+                        </div>
+                    </div>
+                    ${unreadCount}`;
+                
+                btn.addEventListener('click', () => {
+                    currentAgent = agent;
+                    renderAgentList(); // update active state and unread
+                    currentAgentName.textContent = agent.name;
+                    currentAgentModel.textContent = agent.model;
+                    inputArea.placeholder = `Message ${agent.name} (private)...`;
+                    loadChatHistory(agent.id);
+                    inputArea.disabled = false;
+                    btnSend.disabled = false;
+                });
+                agentList.appendChild(btn);
+            });
+        }
+    };
+
+    // Initial List Render
+    renderAgentList();
+
+    // Re-render list on new message to update unread counts
+    window.addEventListener('ollamaclip_unread_updated', renderAgentList);
 
 
 
@@ -222,7 +281,8 @@ export function renderChat(container, agents) {
                     role: 'assistant', 
                     content: fullReply,
                     agentName: respondingAgent.name,
-                    agentColor: respondingAgent.color
+                    agentColor: respondingAgent.color,
+                    taskTitle: taskTitle || null
                 });
                 saveChatHistory(currentAgent ? currentAgent.id : null);
                 

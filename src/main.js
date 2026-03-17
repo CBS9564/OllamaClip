@@ -51,25 +51,62 @@ async function init() {
 
   // 3. Initialize Heartbeat (Autonomous Mode)
   appState.heartbeat = new HeartbeatManager(() => appState.agents, (agent, message) => {
-      console.log(`[PROACTIVE] ${agent.name}: ${message}`);
-      
-      // Save proactive message to shared workspace
-      const history = JSON.parse(localStorage.getItem('ollamaclip_shared_workspace') || '[]');
+      // PROACTIVE CALLBACK: Runs for every heartbeat reply
+      // We don't save here anymore, we let the HeartbeatManager or specific events handle it 
+      // OR we save it to the correct per-agent key
+      const key = `ollamaclip_history_${agent.id}`;
+      const history = JSON.parse(localStorage.getItem(key) || '[]');
       history.push({
           role: 'assistant',
           content: message,
           agentName: agent.name,
           agentColor: agent.color,
-          isProactive: true // Metadata to distinguish autonomous thoughts
+          isProactive: true
       });
-      localStorage.setItem('ollamaclip_shared_workspace', JSON.stringify(history));
-      
-      // Notify components (Chat UI mainly)
-      window.dispatchEvent(new CustomEvent('ollamaclip_new_message', { 
-          detail: { agent, message } 
-      }));
+      localStorage.setItem(key, JSON.stringify(history));
   });
   appState.heartbeat.start();
+
+  // Sidebar Unread Badge Logic
+  const updateSidebarUnreads = () => {
+      const inboxBtn = document.querySelector('.nav-item[data-target="chat"]');
+      if (!inboxBtn) return;
+      
+      const unreads = JSON.parse(localStorage.getItem('ollamaclip_unreads') || '{}');
+      const total = Object.values(unreads).reduce((a, b) => a + b, 0);
+      
+      let badge = inboxBtn.querySelector('.unread-badge');
+      if (total > 0) {
+          if (!badge) {
+              badge = document.createElement('span');
+              badge.className = 'unread-badge';
+              badge.style.marginLeft = 'auto'; // ensure it's on the right
+              inboxBtn.appendChild(badge);
+          }
+          badge.textContent = total > 99 ? '99+' : total;
+      } else if (badge) {
+          badge.remove();
+      }
+  };
+  window.addEventListener('ollamaclip_unread_updated', updateSidebarUnreads);
+  updateSidebarUnreads();
+
+  // Global Unread Tracking
+  window.addEventListener('ollamaclip_new_message', (e) => {
+      const { agent } = e.detail;
+      const isChatView = appState.activeView === 'chat';
+      
+      // We need to know which agent is currently selected in Chat UI if it's active
+      // For now, let's just increment if NOT in Chat view. 
+      // Finer-grained logic could be added if we store currentChatAgentId in appState.
+      if (!isChatView) {
+          const unreads = JSON.parse(localStorage.getItem('ollamaclip_unreads') || '{}');
+          unreads[agent.id] = (unreads[agent.id] || 0) + 1;
+          localStorage.setItem('ollamaclip_unreads', JSON.stringify(unreads));
+          window.dispatchEvent(new CustomEvent('ollamaclip_unread_updated'));
+      }
+      // If in chat view, chat.js handles its own "active thread" logic and clears unreads.
+  });
 
   // 4. Bind Navigation
   navItems.forEach(item => {
