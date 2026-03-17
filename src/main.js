@@ -1,6 +1,7 @@
 import { fetchLocalModels } from './api/ollama.js';
 import { renderDashboard } from './ui/dashboard.js';
 import { renderChat } from './ui/chat.js';
+import { renderTasks } from './ui/tasks.js';
 
 // Application State
 const appState = {
@@ -91,6 +92,10 @@ function updateView() {
     case 'agents':
         // Reuse Dashboard for now for Agents view, real app would have specific list
       renderDashboard(contentContainer, appState.agents, appState.localModels);
+      break;
+    case 'tasks':
+      pageTitle.textContent = 'Workflow Tasks';
+      renderTasks(contentContainer, appState.agents);
       break;
     default:
       contentContainer.innerHTML = '<div style="padding: 24px;">View not implemented yet.</div>';

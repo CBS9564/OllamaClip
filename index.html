@@ -38,6 +38,10 @@
             <i class="ph ph-chat-teardrop-text"></i>
             <span>Inbox</span>
           </button>
+          <button class="nav-item" data-target="tasks">
+            <i class="ph ph-check-square-offset"></i>
+            <span>Tasks</span>
+          </button>
           <button class="nav-item" data-target="settings">
             <i class="ph ph-gear"></i>
             <span>Settings</span>
@@ -140,6 +144,44 @@
             <button class="btn-send" id="btn-send-msg" disabled>
               <i class="ph-fill ph-paper-plane-right"></i>
             </button>
+          </div>
+        </div>
+      </div>
+    </template>
+
+    <template id="tpl-tasks">
+      <div class="view-tasks">
+        <div class="tasks-container glass-panel">
+          <div class="tasks-header">
+            <h2>Workflow Tasks</h2>
+            <p class="text-muted">Manage your AI workforce assignments.</p>
+          </div>
+          
+          <div class="task-input-section">
+            <input type="text" id="task-title-input" placeholder="What needs to be done?" />
+             <select id="task-agent-select">
+                <option value="">Assign to Unassigned</option>
+                <!-- Agent options populated via JS -->
+             </select>
+            <button class="btn btn-primary" id="btn-add-task">
+              <i class="ph ph-plus"></i> Add
+            </button>
+          </div>
+
+          <div class="task-list-wrapper">
+             <div class="task-list-header">
+                <h3>Open Tasks</h3>
+             </div>
+             <ul class="task-list" id="open-task-list">
+                <!-- Open tasks injected via JS -->
+             </ul>
+             
+             <div class="task-list-header" style="margin-top: 24px;">
+                <h3>Completed</h3>
+             </div>
+             <ul class="task-list completed-list" id="completed-task-list">
+                <!-- Completed tasks injected via JS -->
+             </ul>
           </div>
         </div>
       </div>

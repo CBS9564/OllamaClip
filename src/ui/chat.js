@@ -33,14 +33,24 @@ export function renderChat(container, agents) {
                 document.getElementById('current-chat-agent').textContent = agent.name;
                 document.getElementById('current-chat-model').textContent = agent.model;
                 
-                // Reset chat
+                // Reset or Load chat
                 messagesContainer.innerHTML = '';
-                chatHistory = [
-                    { role: 'system', content: agent.systemPrompt || "You are a helpful AI assistant." }
-                ];
                 
-                // Add contextual greeting
-                appendMessage('system', `${agent.name} is ready. System prompt initialized.`);
+                const savedHistory = localStorage.getItem(`ollamaclip_chat_${agent.id}`);
+                if (savedHistory) {
+                    chatHistory = JSON.parse(savedHistory);
+                    // Render saved history
+                    chatHistory.forEach(msg => {
+                        appendMessage(msg.role === 'assistant' ? 'agent' : msg.role, msg.content);
+                    });
+                } else {
+                    chatHistory = [
+                        { role: 'system', content: agent.systemPrompt || "You are a helpful AI assistant." }
+                    ];
+                    // Add contextual greeting
+                    appendMessage('system', `${agent.name} is ready. System prompt initialized.`);
+                    saveChatHistory();
+                }
                 
                 // Enable input
                 inputArea.disabled = false;
@@ -80,6 +90,8 @@ export function renderChat(container, agents) {
         // User message
         appendMessage('user', text);
         chatHistory.push({ role: 'user', content: text });
+        saveChatHistory();
+        
         inputArea.value = '';
         inputArea.style.height = 'auto'; // reset height
 
@@ -108,6 +120,7 @@ export function renderChat(container, agents) {
                 btnSend.innerHTML = '<i class="ph-fill ph-paper-plane-right"></i>';
                 btnSend.disabled = false;
                 chatHistory.push({ role: 'assistant', content: fullReply });
+                saveChatHistory();
                 
                 // Focus input back
                 inputArea.focus();
@@ -123,6 +136,12 @@ export function renderChat(container, agents) {
             handleSend();
         }
     });
+
+    const saveChatHistory = () => {
+        if (currentAgent) {
+            localStorage.setItem(`ollamaclip_chat_${currentAgent.id}`, JSON.stringify(chatHistory));
+        }
+    };
 
     // Auto resize textarea
     inputArea.addEventListener('input', function() {

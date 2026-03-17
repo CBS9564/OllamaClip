@@ -10,8 +10,9 @@ OllamaClip is a high-performance, lightweight web-based orchestration platform f
 - **Glassmorphism UI & Dark Mode**: A stunning, modern design utilizing CSS custom properties, backdrop filters, and subtle micro-animations for an elevated user experience.
 - **Native Ollama Integration**: Connects directly to `http://localhost:11434` without intermediate servers, retrieving available models dynamically and streaming chat responses in real time.
 - **Agent Orchestration**: Create AI agents and assign them specific roles, system prompts, and individual local models (e.g., Llama 3 for coding, Mistral for copy).
+- **Task Management System**: A dedicated UI to create tasks, assign them to specific agents in your workforce, and track their completion status.
 - **Interactive Dashboard**: Track active agents, available models, and view an automatically generated organizational chart of your AI workforce.
-- **Local Storage**: All agent configurations and chat histories are kept strictly local in your browser, maintaining full privacy.
+- **Persistent Local Memory**: All agent configurations, chat histories (per agent), and workflow tasks are kept strictly local in your browser via `localStorage`, maintaining full privacy and persisting across reloads.
 
 ## Prerequisites
 
@@ -53,7 +54,8 @@ OllamaClip is a high-performance, lightweight web-based orchestration platform f
 -   `src/main.js`: Setup logic, router, state management (`appState`), and the Agent Creation Wizard logic.
 -   `src/api/ollama.js`: Network layer containing `fetchLocalModels` and `chatWithModel` (handles text streaming).
 -   `src/ui/dashboard.js`: Rendering logic for the stats and organizational chart.
--   `src/ui/chat.js`: Chat interface rendering, text streaming UI logic, and user input handling.
+-   `src/ui/chat.js`: Chat interface rendering, text streaming UI logic, persistent memory save/load methods, and user input handling.
+-   `src/ui/tasks.js`: Complete task management interface with assignment logic and state persistence.
 
 ## Development Principles
 
