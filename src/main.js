@@ -3,6 +3,7 @@ import { renderDashboard } from './ui/dashboard.js';
 import { renderChat } from './ui/chat.js';
 import { renderTasks } from './ui/tasks.js';
 import { renderSettings } from './ui/settings.js';
+import { renderModelsManager } from './ui/models.js';
 
 // Application State
 const appState = {
@@ -97,6 +98,10 @@ function updateView() {
     case 'tasks':
       pageTitle.textContent = 'Workflow Tasks';
       renderTasks(contentContainer, appState.agents);
+      break;
+    case 'models':
+      pageTitle.textContent = 'Model Library';
+      renderModelsManager(contentContainer, appState, updateView);
       break;
     case 'settings':
       pageTitle.textContent = 'Preferences & Configuration';
