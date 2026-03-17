@@ -17,16 +17,17 @@ export function renderChat(container, agents) {
     let isGenerating = false;
 
     // ----------------------------------------------------
-    // Shared Workspace: One global history for ALL agents
+    // Chat Persistence: Per-Agent and Global History
     // ----------------------------------------------------
-    
+    const getHistoryKey = (agentId) => agentId ? `ollamaclip_history_${agentId}` : 'ollamaclip_shared_workspace';
+
     // Append a message to the UI
     const appendMessage = (role, text, agentName = null, agentColor = 'var(--accent-primary)', isProactive = false) => {
         const msgDiv = document.createElement('div');
         msgDiv.className = `message ${role} ${isProactive ? 'proactive' : ''}`;
         
         if (role === 'system') {
-            msgDiv.innerHTML = `<p>${text}</p>`;
+            msgDiv.innerHTML = `<p style="color:var(--text-muted); font-size:0.8rem; text-align:center; margin: 10px 0;">${text}</p>`;
         } else {
             let nameTag = '';
             if (role === 'agent' && agentName) {
@@ -49,16 +50,19 @@ export function renderChat(container, agents) {
         
         messagesContainer.appendChild(msgDiv);
         messagesContainer.scrollTop = messagesContainer.scrollHeight;
-        return msgDiv; // Return element to allow updating (for streaming)
+        return msgDiv;
     };
 
-    const loadSharedWorkspace = () => {
-        const savedHistory = localStorage.getItem('ollamaclip_shared_workspace');
+    const loadChatHistory = (agentId) => {
+        const key = getHistoryKey(agentId);
+        const savedHistory = localStorage.getItem(key);
+        messagesContainer.innerHTML = '';
+        
         if (savedHistory) {
             chatHistory = JSON.parse(savedHistory);
             chatHistory.forEach(msg => {
                 if (msg.role === 'system') {
-                   // Only show system messages if they are recent/relevant
+                   // Skip system prompts in UI
                 } else if (msg.role === 'assistant') {
                     const label = msg.isProactive ? `${msg.agentName} (Proactive)` : msg.agentName;
                     appendMessage('agent', msg.content, label, msg.agentColor, msg.isProactive);
@@ -66,7 +70,16 @@ export function renderChat(container, agents) {
                     appendMessage('user', msg.content);
                 }
             });
+        } else {
+            chatHistory = [];
+            appendMessage('system', agentId ? `This is your private workspace with ${currentAgent.name}.` : 'Welcome to the Global Workspace. All agents can see this.');
         }
+        messagesContainer.scrollTop = messagesContainer.scrollHeight;
+    };
+
+    const saveChatHistory = (agentId) => {
+        const key = getHistoryKey(agentId);
+        localStorage.setItem(key, JSON.stringify(chatHistory));
     };
 
     // Clean up existing listener if any to avoid duplicates
@@ -81,46 +94,47 @@ export function renderChat(container, agents) {
     };
     window.addEventListener('ollamaclip_new_message', window._onProactiveMessage);
 
-    const saveSharedWorkspace = () => {
-        localStorage.setItem('ollamaclip_shared_workspace', JSON.stringify(chatHistory));
-    };
-
-    // Load history once on init
-    loadSharedWorkspace();
+    // Initial Load (Global Inbox by default)
+    loadChatHistory(null);
     
     // Smooth scroll to bottom on load
     messagesContainer.scrollTop = messagesContainer.scrollHeight;
 
     // Populate Agent List
-    if (agents.length === 0) {
-        agentList.innerHTML = '<p style="padding:16px; color:var(--text-muted); font-size:0.85rem">No agents available.</p>';
-    } else {
-        // Automatically select the first agent if none is active
-        if (!currentAgent && agents.length > 0) {
-            currentAgent = agents[0];
-            if (currentAgentName) currentAgentName.textContent = currentAgent.name;
-            if (currentAgentModel) currentAgentModel.textContent = currentAgent.model;
-            inputArea.disabled = false;
-            btnSend.disabled = false;
-        }
+    agentList.innerHTML = '';
+    
+    // 1. Add Global Inbox
+    const globalBtn = document.createElement('button');
+    globalBtn.className = `nav-item ${!currentAgent ? 'active' : ''}`;
+    globalBtn.innerHTML = `<i class="ph-fill ph-globe" style="color:var(--accent-primary)"></i> <div style="display:flex; flex-direction:column; align-items:flex-start"><span>Global Inbox</span><span style="font-size:0.7rem; color:var(--text-muted)">Group Collaboration</span></div>`;
+    globalBtn.addEventListener('click', () => {
+        Array.from(agentList.children).forEach(c => c.classList.remove('active'));
+        globalBtn.classList.add('active');
+        currentAgent = null;
+        currentAgentName.textContent = "Global Inbox";
+        currentAgentModel.textContent = "Multi-Agent Collaboration";
+        inputArea.placeholder = "Message the whole team (use @AgentName to target)...";
+        inputArea.disabled = false;
+        btnSend.disabled = false;
+        loadChatHistory(null);
+    });
+    agentList.appendChild(globalBtn);
 
+    // 2. Individual Agents
+    if (agents.length > 0) {
         agents.forEach(agent => {
             const btn = document.createElement('button');
             btn.className = `nav-item ${currentAgent && currentAgent.id === agent.id ? 'active' : ''}`;
             btn.innerHTML = `<i class="ph-fill ph-robot" style="color:${agent.color}"></i> <div style="display:flex; flex-direction:column; align-items:flex-start"><span>${agent.name}</span><span style="font-size:0.7rem; color:var(--text-muted)">${agent.model}</span></div>`;
             
             btn.addEventListener('click', () => {
-                // Remove active from others
                 Array.from(agentList.children).forEach(c => c.classList.remove('active'));
                 btn.classList.add('active');
-                
-                // Set current agent Context
                 currentAgent = agent;
-                if (currentAgentName) currentAgentName.textContent = agent.name;
-                if (currentAgentModel) currentAgentModel.textContent = agent.model;
-                inputArea.placeholder = `Message ${agent.name} (use @ to mention others)...`;
-                
-                // Enable input
+                currentAgentName.textContent = agent.name;
+                currentAgentModel.textContent = agent.model;
+                inputArea.placeholder = `Message ${agent.name} (private)...`;
+                loadChatHistory(agent.id);
                 inputArea.disabled = false;
                 btnSend.disabled = false;
             });
@@ -128,15 +142,18 @@ export function renderChat(container, agents) {
         });
     }
 
+    // Initial Load
+    loadChatHistory(currentAgent ? currentAgent.id : null);
+
 
 
     // Handle Send
     const handleSend = async () => {
         const text = inputArea.value.trim();
-        if (!text || !currentAgent || isGenerating) return;
+        if (!text || isGenerating) return; // Allow sending even if currentAgent is null (Global)
 
         // Extract Mentions (@Name)
-        let respondingAgent = currentAgent; // Default to currently selected agent in sidebar
+        let respondingAgent = currentAgent; // Default to currently selected agent
         const mentionMatch = text.match(/@(\w+)/);
         
         if (mentionMatch) {
@@ -145,6 +162,17 @@ export function renderChat(container, agents) {
             if (foundAgent) {
                 respondingAgent = foundAgent;
             }
+        }
+
+        // If in Global Inbox and no mention, default to first agent (or just save without reply?)
+        // Let's have agents[0] respond if no mention in Global
+        if (!respondingAgent && agents.length > 0) {
+            respondingAgent = agents[0];
+        }
+
+        if (!respondingAgent) {
+            appendMessage('system', 'Please create at least one agent to start a conversation.');
+            return;
         }
 
         // Add System prompt to contextualize the agent if it's their first time speaking in this thread
@@ -159,7 +187,7 @@ export function renderChat(container, agents) {
         appendMessage('user', text);
         chatHistory.push({ role: 'user', content: text });
         apiPayloadHistory.push({ role: 'user', content: text });
-        saveSharedWorkspace();
+        saveChatHistory(currentAgent ? currentAgent.id : null);
         
         inputArea.value = '';
         inputArea.style.height = 'auto'; // reset height
@@ -170,41 +198,100 @@ export function renderChat(container, agents) {
         btnSend.innerHTML = '<i class="ph ph-spinner ph-spin"></i>';
         
         const replyDiv = appendMessage('agent', '', respondingAgent.name, respondingAgent.color);
-        // The text content element is the second child node of the inner div if nameTag is present.
         const contentDivDom = replyDiv.querySelector('div');
-        
-        // We need a safe way to append text below the name tag without overriding the name HTML
         const textNode = document.createElement('span');
         contentDivDom.appendChild(textNode);
         
         let fullReply = "";
 
-        // Call API targeting the specific mentioned agent (or the current one)
         await chatWithModel(
             respondingAgent.model,
             apiPayloadHistory,
-            respondingAgent.options || {}, // V6: Pass custom agent tuning (temp, ctx)
+            respondingAgent.options || {},
             (chunkText) => {
                 fullReply += chunkText;
                 textNode.innerText = fullReply;
                 messagesContainer.scrollTop = messagesContainer.scrollHeight;
             },
-            () => {
+            async () => {
                 isGenerating = false;
                 btnSend.innerHTML = '<i class="ph-fill ph-paper-plane-right"></i>';
                 btnSend.disabled = false;
                 
-                // Save the assistant reply alongside metadata about WHO replied
                 chatHistory.push({ 
                     role: 'assistant', 
                     content: fullReply,
                     agentName: respondingAgent.name,
                     agentColor: respondingAgent.color
                 });
-                saveSharedWorkspace();
+                saveChatHistory(currentAgent ? currentAgent.id : null);
                 
-                // Focus input back
+                // ----------------------------------------------------
+                // AUTO-COLLABORATION: Detect Mentions and Trigger Chain
+                // ----------------------------------------------------
+                const nextMention = fullReply.match(/@(\w+)/);
+                if (nextMention) {
+                    const nextName = nextMention[1].toLowerCase();
+                    const nextAgent = agents.find(a => a.name.toLowerCase() === nextName);
+                    
+                    if (nextAgent && nextAgent.id !== respondingAgent.id) {
+                        console.log(`🔗 Auto-triggering ${nextAgent.name} in 2 seconds...`);
+                        setTimeout(() => {
+                            // Recursively call handleSend but simulating a "mention-driven" input
+                            // We don't want to re-append a user message, just trigger the next agent
+                            triggerAgentReply(nextAgent);
+                        }, 2500);
+                    }
+                }
+                
                 inputArea.focus();
+            }
+        );
+    };
+
+    const triggerAgentReply = async (agent) => {
+        if (isGenerating) return;
+        
+        isGenerating = true;
+        btnSend.disabled = true;
+        
+        const apiPayload = [
+            { role: 'system', content: agent.systemPrompt || "" },
+            ...chatHistory.map(h => ({ role: h.role, content: h.content })),
+            { role: 'user', content: `[COLLABORATION] You were mentioned. Respond to the previous discussion.` }
+        ];
+
+        const replyDiv = appendMessage('agent', '', agent.name, agent.color);
+        const textNode = document.createElement('span');
+        replyDiv.querySelector('div').appendChild(textNode);
+        
+        let fullReply = "";
+
+        await chatWithModel(agent.model, apiPayload, agent.options || {}, 
+            (chunk) => {
+                fullReply += chunk;
+                textNode.innerText = fullReply;
+                messagesContainer.scrollTop = messagesContainer.scrollHeight;
+            }, 
+            () => {
+                isGenerating = false;
+                btnSend.disabled = false;
+                chatHistory.push({ 
+                    role: 'assistant', 
+                    content: fullReply,
+                    agentName: agent.name,
+                    agentColor: agent.color
+                });
+                saveChatHistory(currentAgent ? currentAgent.id : null);
+
+                // Check for another mention (Daisy chaining)
+                const nextMention = fullReply.match(/@(\w+)/);
+                if (nextMention) {
+                    const nextAgent = agents.find(a => a.name.toLowerCase() === nextMention[1].toLowerCase());
+                    if (nextAgent && nextAgent.id !== agent.id) {
+                        setTimeout(() => triggerAgentReply(nextAgent), 2500);
+                    }
+                }
             }
         );
     };
