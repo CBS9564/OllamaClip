@@ -178,14 +178,15 @@ body {
     text-align: center;
     font-weight: 700;
     box-shadow: 0 0 10px var(--accent-primary);
+    margin-left: auto; /* Push to right in flex containers */
 }
 
 .nav-item {
   position: relative;
   display: flex;
-  justify-content: space-between; /* Changed from align-items: center; gap: 12px; width: 100%; */
   align-items: center;
-  width: 100%; /* Added back width */
+  gap: 12px;
+  width: 100%;
   padding: 12px 16px;
   background: transparent;
   border: none;
@@ -951,42 +952,104 @@ body {
     border-color: var(--accent-secondary);
 }
 
-.task-heartbeat.active {
-    background: rgba(236, 72, 153, 0.2);
-    color: var(--accent-secondary);
-    border-color: var(--accent-secondary);
-    animation: heartbeat-pulse 1.5s ease-in-out infinite;
+.task-actions {
+    display: flex;
+    gap: 8px;
+    align-items: center;
 }
 
-@keyframes heartbeat-pulse {
-    0% { transform: scale(1); opacity: 1; }
-    50% { transform: scale(1.1); opacity: 0.8; }
-    100% { transform: scale(1); opacity: 1; }
+.task-control {
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid var(--border-light);
+    color: var(--text-muted);
+    border-radius: 8px;
+    width: 32px;
+    height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.task-control:hover {
+    background: rgba(255, 255, 255, 0.1);
+    color: var(--text-primary);
+    transform: translateY(-1px);
+}
+
+.task-control.active.play {
+    background: rgba(16, 185, 129, 0.15);
+    color: var(--success);
+    border-color: rgba(16, 185, 129, 0.4);
+    box-shadow: 0 0 15px rgba(16, 185, 129, 0.2);
+}
+
+.task-control.active.pause {
+    background: rgba(245, 158, 11, 0.15);
+    color: var(--warning);
+    border-color: rgba(245, 158, 11, 0.4);
+}
+
+.task-edit, .task-delete {
+    background: transparent;
+    border: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    font-size: 1.15rem;
+    padding: 6px;
+    border-radius: 8px;
+    transition: all 0.2s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.task-edit:hover { background: rgba(99, 102, 241, 0.1); color: var(--accent-primary); }
+.task-delete:hover { background: rgba(239, 68, 68, 0.1); color: var(--danger); }
+
+.task-edit-form {
+    padding: 8px;
+    background: rgba(255, 255, 255, 0.03);
+    border-radius: 12px;
+    border: 1px dashed var(--border-light);
+}
+
+.task-edit-form input, .task-edit-form select {
+    background: var(--bg-panel);
+    border: 1px solid var(--border-light);
+    color: var(--text-primary);
+    padding: 8px 12px;
+    border-radius: 8px;
+    font-size: 0.9rem;
+    outline: none;
+    transition: border-color 0.2s;
+}
+
+.task-edit-form input:focus, .task-edit-form select:focus {
+    border-color: var(--accent-primary);
 }
 
 .status-badge {
     font-size: 0.65rem;
     font-weight: 700;
-    padding: 2px 6px;
-    border-radius: 4px;
+    padding: 2px 8px;
+    border-radius: 6px;
     text-transform: uppercase;
     letter-spacing: 0.05em;
+    display: inline-flex;
+    align-items: center;
 }
 
-.status-badge.processing {
-    background: rgba(16, 185, 129, 0.15);
-    color: var(--success);
-}
+.status-badge.processing { background: rgba(16, 185, 129, 0.15); color: var(--success); }
+.status-badge.paused { background: rgba(245, 158, 11, 0.15); color: var(--warning); }
+.status-badge.needs_input { background: rgba(236, 72, 153, 0.15); color: var(--accent-secondary); animation: pulse-opacity 2s infinite; }
+.status-badge.completed { background: rgba(148, 163, 184, 0.15); color: var(--text-secondary); }
 
-.status-badge.needs_input {
-    background: rgba(245, 158, 11, 0.15);
-    color: var(--warning);
-    animation: flash 1s infinite;
-}
-
-.status-badge.completed {
-    background: rgba(100, 116, 139, 0.15);
-    color: var(--text-muted);
+@keyframes pulse-opacity {
+    0% { opacity: 1; }
+    50% { opacity: 0.6; }
+    100% { opacity: 1; }
 }
 
 @keyframes flash {
