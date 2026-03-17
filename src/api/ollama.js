@@ -2,7 +2,8 @@
  * Ollama API Connection Services
  * Default port: http://localhost:11434
  */
-const OLLAMA_BASE_URL = 'http://localhost:11434/api';
+const getBaseUrl = () => localStorage.getItem('ollamaclip_api_url') || 'http://localhost:11434/api';
+const getKeepAlive = () => localStorage.getItem('ollamaclip_keep_alive') || '5m';
 
 /**
  * Fetch available models from local Ollama instance
@@ -10,7 +11,7 @@ const OLLAMA_BASE_URL = 'http://localhost:11434/api';
  */
 export async function fetchLocalModels() {
   try {
-    const response = await fetch(`${OLLAMA_BASE_URL}/tags`);
+    const response = await fetch(`${getBaseUrl()}/tags`);
     if (!response.ok) {
       throw new Error(`Ollama Error: ${response.status} ${response.statusText}`);
     }
@@ -31,14 +32,14 @@ export async function fetchLocalModels() {
  */
 export async function chatWithModel(model, messages, onChunk, onComplete) {
   try {
-    const response = await fetch(`${OLLAMA_BASE_URL}/chat`, {
+    const response = await fetch(`${getBaseUrl()}/chat`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         model: model,
         messages: messages,
         stream: true,
-        keep_alive: "5m" // V3 Optimization: Keep model in memory to rapidly switch context
+        keep_alive: getKeepAlive() // V4 Optimization: Dynamic VRAM tuning
       })
     });
 

@@ -2,6 +2,7 @@ import { fetchLocalModels } from './api/ollama.js';
 import { renderDashboard } from './ui/dashboard.js';
 import { renderChat } from './ui/chat.js';
 import { renderTasks } from './ui/tasks.js';
+import { renderSettings } from './ui/settings.js';
 
 // Application State
 const appState = {
@@ -96,6 +97,10 @@ function updateView() {
     case 'tasks':
       pageTitle.textContent = 'Workflow Tasks';
       renderTasks(contentContainer, appState.agents);
+      break;
+    case 'settings':
+      pageTitle.textContent = 'Preferences & Configuration';
+      renderSettings(contentContainer, appState);
       break;
     default:
       contentContainer.innerHTML = '<div style="padding: 24px;">View not implemented yet.</div>';

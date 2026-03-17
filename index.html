@@ -187,6 +187,62 @@
       </div>
     </template>
 
+    <!-- Settings Template -->
+    <template id="tpl-settings">
+      <div class="view-settings">
+        <div class="settings-container glass-panel">
+          <div class="settings-header">
+            <h2>Preferences & Configuration</h2>
+            <p class="text-muted">Manage your local API connection and storage.</p>
+          </div>
+
+          <div class="settings-section">
+            <h3>API Connection</h3>
+            <div class="form-group">
+              <label for="setting-api-url">Ollama Base URL</label>
+              <input type="text" id="setting-api-url" class="setting-input" value="http://localhost:11434/api" />
+              <small class="text-muted">Default: http://localhost:11434/api. Change if running Ollama on a different network node or port.</small>
+            </div>
+            
+            <div class="form-group">
+              <label for="setting-keep-alive">Model Keep-Alive (VRAM Retention)</label>
+              <select id="setting-keep-alive" class="setting-input">
+                 <option value="0s">0s (Unload immediately)</option>
+                 <option value="1m">1m (1 Minute)</option>
+                 <option value="5m">5m (5 Minutes - Recommended)</option>
+                 <option value="30m">30m (30 Minutes)</option>
+                 <option value="-1">Infinite (Until Ollama restarts)</option>
+              </select>
+              <small class="text-muted">How long models stay loaded in memory (<a href="https://github.com/ollama/ollama/blob/main/docs/faq.md#how-do-i-keep-a-model-loaded-in-memory-or-make-it-unload-immediately" target="_blank" style="color:var(--accent-primary)">Docs</a>).</small>
+            </div>
+            
+            <button class="btn btn-primary" id="btn-save-settings" style="margin-top: 12px;">
+              <i class="ph ph-floppy-disk"></i> Save Configuration
+            </button>
+            <span id="settings-save-feedback" style="margin-left:8px; color:var(--success); opacity:0; transition:opacity 0.3s;">Saved!</span>
+          </div>
+
+          <div class="settings-section danger-zone">
+            <h3>Data Management</h3>
+            <p class="text-muted" style="margin-bottom: 16px;">These actions are permanent and cannot be undone. Data is cleared instantly from your browser's localStorage.</p>
+            
+            <div class="danger-actions">
+               <button class="btn btn-warning" id="btn-clear-workspace">
+                 <i class="ph ph-broom"></i> Clear Shared Workspace
+               </button>
+               <button class="btn btn-warning" id="btn-clear-tasks">
+                 <i class="ph ph-check-square-offset"></i> Clear All Tasks
+               </button>
+               <button class="btn btn-danger" id="btn-delete-agents">
+                 <i class="ph ph-warning"></i> Delete All Agents
+               </button>
+            </div>
+          </div>
+          
+        </div>
+      </div>
+    </template>
+
     <script type="module" src="./src/main.js"></script>
   </body>
 </html>

@@ -703,3 +703,113 @@ body {
 .task-delete:hover {
   color: var(--danger);
 }
+
+/* -------------------------------------------------------------------------- */
+/*                                Settings View                               */
+/* -------------------------------------------------------------------------- */
+.view-settings {
+  display: flex;
+  justify-content: center;
+  padding: 16px;
+  animation: fadeIn 0.4s ease-out forwards;
+}
+
+.settings-container {
+  width: 100%;
+  max-width: 600px;
+  padding: 32px;
+  display: flex;
+  flex-direction: column;
+  gap: 32px;
+}
+
+.settings-header h2 {
+  font-size: 1.5rem;
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+
+.settings-section {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.settings-section h3 {
+  font-size: 1.1rem;
+  font-weight: 500;
+  border-bottom: 1px solid var(--border-light);
+  padding-bottom: 8px;
+  color: var(--text-primary);
+}
+
+.form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.form-group label {
+  font-size: 0.9rem;
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
+.setting-input {
+  background: rgba(0,0,0,0.2);
+  border: 1px solid var(--border-light);
+  border-radius: 8px;
+  padding: 12px 16px;
+  color: var(--text-primary);
+  font-family: var(--font-family);
+  font-size: 0.95rem;
+  outline: none;
+  transition: border-color var(--transition-fast);
+}
+
+.setting-input:focus {
+  border-color: var(--accent-primary);
+}
+
+.setting-input option {
+  background: var(--bg-dark);
+}
+
+.danger-zone {
+  margin-top: 16px;
+}
+
+.danger-zone h3 {
+  color: var(--danger);
+  border-bottom-color: rgba(239, 68, 68, 0.3);
+}
+
+.danger-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.btn-danger {
+  background: transparent;
+  color: var(--danger);
+  border: 1px solid var(--danger);
+}
+
+.btn-danger:hover {
+  background: var(--danger);
+  color: white;
+  transform: translateY(-1px);
+}
+
+.btn-warning {
+  background: transparent;
+  color: var(--warning);
+  border: 1px solid var(--warning);
+}
+
+.btn-warning:hover {
+  background: var(--warning);
+  color: #fff;
+  transform: translateY(-1px);
+}
