@@ -93,7 +93,7 @@ export async function pullModel(name, onProgress, onComplete, onError) {
     const response = await fetch(`${getBaseUrl()}/pull`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: name, stream: true })
+      body: JSON.stringify({ model: name, stream: true })
     });
 
     if (!response.ok) {
@@ -144,7 +144,7 @@ export async function deleteModel(name) {
     const response = await fetch(`${getBaseUrl()}/delete`, {
       method: 'DELETE',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: name })
+      body: JSON.stringify({ model: name })
     });
     
     return response.ok;
