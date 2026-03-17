@@ -56,10 +56,21 @@ export function renderDashboard(container, agents, localModels, appStateRef, upd
   }
 
   // Click on "Available Models" to switch to Models view
-  const btnShowManager = clone.querySelector('#btn-show-model-manager');
-  if (btnShowManager) {
-      btnShowManager.addEventListener('click', () => {
+  const btnShowModelManager = clone.querySelector('#btn-show-model-manager');
+  if (btnShowModelManager) {
+      btnShowModelManager.addEventListener('click', () => {
           appStateRef.activeView = 'models';
+          updateViewCallback();
+      });
+  }
+
+  // Click on "Active Agents" to switch to Agents view
+  const statCardAgents = clone.querySelector('.stat-card:first-child');
+  if (statCardAgents) {
+      statCardAgents.style.cursor = 'pointer';
+      statCardAgents.title = 'Click to manage agents';
+      statCardAgents.addEventListener('click', () => {
+          appStateRef.activeView = 'agents';
           updateViewCallback();
       });
   }
