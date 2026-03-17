@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>OllamaClip - AI Agent Orchestration</title>
+    <!-- Google Fonts: Inter -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <!-- Phosphor Icons -->
+    <script src="https://unpkg.com/@phosphor-icons/web"></script>
+    <link rel="stylesheet" href="./src/style.css">
+  </head>
+  <body>
+    <div id="app" class="app-layout">
+      
+      <!-- Sidebar Navigation -->
+      <aside class="sidebar glass-panel">
+        <div class="sidebar-header">
+          <div class="logo">
+            <i class="ph-fill ph-paperclip"></i>
+            <span>OllamaClip</span>
+          </div>
+        </div>
+        
+        <nav class="sidebar-nav">
+          <button class="nav-item active" data-target="dashboard">
+            <i class="ph ph-squares-four"></i>
+            <span>Dashboard</span>
+          </button>
+          <button class="nav-item" data-target="agents">
+            <i class="ph ph-users"></i>
+            <span>Agents</span>
+          </button>
+          <button class="nav-item" data-target="chat">
+            <i class="ph ph-chat-teardrop-text"></i>
+            <span>Inbox</span>
+          </button>
+          <button class="nav-item" data-target="settings">
+            <i class="ph ph-gear"></i>
+            <span>Settings</span>
+          </button>
+        </nav>
+
+        <div class="sidebar-footer">
+          <div class="status-indicator online">
+            <span class="dot"></span>
+            <span>Ollama Connected</span>
+          </div>
+        </div>
+      </aside>
+
+      <!-- Main Content Area -->
+      <main class="main-content">
+        <!-- Top Header -->
+        <header class="top-header glass-panel">
+          <h1 id="page-title">Dashboard</h1>
+          <div class="header-actions">
+            <button class="btn btn-primary" id="btn-new-agent">
+              <i class="ph ph-plus"></i>
+              New Agent
+            </button>
+          </div>
+        </header>
+
+        <!-- Dynamic Content Container -->
+        <div id="content-container" class="content-container">
+          <!-- Views will be injected here by JS -->
+        </div>
+      </main>
+
+    </div>
+    
+    <!-- Templates for later JS injection -->
+    <template id="tpl-dashboard">
+      <div class="view-dashboard">
+        <div class="stats-grid">
+          <div class="stat-card glass-panel">
+            <div class="stat-icon"><i class="ph ph-robot"></i></div>
+            <div class="stat-info">
+              <h3>Active Agents</h3>
+              <p id="stat-active-agents">0</p>
+            </div>
+          </div>
+          <div class="stat-card glass-panel">
+            <div class="stat-icon"><i class="ph ph-cpu"></i></div>
+            <div class="stat-info">
+              <h3>Available Models</h3>
+              <p id="stat-local-models">Loading...</p>
+            </div>
+          </div>
+          <div class="stat-card glass-panel">
+            <div class="stat-icon"><i class="ph ph-chats"></i></div>
+            <div class="stat-info">
+              <h3>Total Interactions</h3>
+              <p>0</p>
+            </div>
+          </div>
+        </div>
+        
+        <div class="org-chart-section">
+          <h2>Organizational Chart</h2>
+          <div class="org-chart glass-panel" id="org-chart-container">
+            <p class="empty-state">No agents configured yet. Create one to get started.</p>
+          </div>
+        </div>
+      </div>
+    </template>
+
+    <template id="tpl-chat">
+      <div class="view-chat">
+        <div class="chat-sidebar glass-panel">
+          <div class="chat-search">
+             <i class="ph ph-magnifying-glass"></i>
+             <input type="text" placeholder="Search agents..." />
+          </div>
+          <div class="agent-list" id="chat-agent-list">
+             <!-- Agents will be listed here -->
+          </div>
+        </div>
+        
+        <div class="chat-window glass-panel">
+          <div class="chat-header">
+            <div class="chat-title">
+              <h3 id="current-chat-agent">Select an agent</h3>
+              <span class="model-badge" id="current-chat-model"></span>
+            </div>
+          </div>
+          
+          <div class="chat-messages" id="chat-messages">
+             <div class="message system">
+               <p>Welcome to your AI workspace. Select an agent to start collaborating.</p>
+             </div>
+          </div>
+          
+          <div class="chat-input-area">
+            <textarea id="chat-input" placeholder="Message your agent..." rows="1"></textarea>
+            <button class="btn-send" id="btn-send-msg" disabled>
+              <i class="ph-fill ph-paper-plane-right"></i>
+            </button>
+          </div>
+        </div>
+      </div>
+    </template>
+
+    <script type="module" src="./src/main.js"></script>
+  </body>
+</html>

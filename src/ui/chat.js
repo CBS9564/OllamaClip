@@ -1,0 +1,145 @@
+import { chatWithModel } from '../api/ollama.js';
+
+export function renderChat(container, agents) {
+    const tpl = document.getElementById('tpl-chat');
+    const clone = tpl.content.cloneNode(true);
+    container.innerHTML = '';
+    
+    const agentList = clone.querySelector('#chat-agent-list');
+    const inputArea = clone.querySelector('#chat-input');
+    const btnSend = clone.querySelector('#btn-send-msg');
+    const messagesContainer = clone.querySelector('#chat-messages');
+    
+    let currentAgent = null;
+    let chatHistory = [];
+    let isGenerating = false;
+
+    // Populate Agent List
+    if (agents.length === 0) {
+        agentList.innerHTML = '<p style="padding:16px; color:var(--text-muted); font-size:0.85rem">No agents available.</p>';
+    } else {
+        agents.forEach(agent => {
+            const btn = document.createElement('button');
+            btn.className = 'nav-item';
+            btn.innerHTML = `<i class="ph-fill ph-robot" style="color:${agent.color}"></i> <div style="display:flex; flex-direction:column; align-items:flex-start"><span>${agent.name}</span><span style="font-size:0.7rem; color:var(--text-muted)">${agent.model}</span></div>`;
+            
+            btn.addEventListener('click', () => {
+                // Remove active from others
+                Array.from(agentList.children).forEach(c => c.classList.remove('active'));
+                btn.classList.add('active');
+                
+                // Set current agent
+                currentAgent = agent;
+                document.getElementById('current-chat-agent').textContent = agent.name;
+                document.getElementById('current-chat-model').textContent = agent.model;
+                
+                // Reset chat
+                messagesContainer.innerHTML = '';
+                chatHistory = [
+                    { role: 'system', content: agent.systemPrompt || "You are a helpful AI assistant." }
+                ];
+                
+                // Add contextual greeting
+                appendMessage('system', `${agent.name} is ready. System prompt initialized.`);
+                
+                // Enable input
+                inputArea.disabled = false;
+                btnSend.disabled = false;
+            });
+            agentList.appendChild(btn);
+        });
+    }
+
+    // Append a message to the UI
+    const appendMessage = (role, text) => {
+        const msgDiv = document.createElement('div');
+        msgDiv.className = `message ${role}`;
+        
+        if (role === 'system') {
+            msgDiv.innerHTML = `<p>${text}</p>`;
+        } else {
+            msgDiv.innerHTML = `<div style="background: ${role === 'user' ? 'var(--accent-primary)' : 'var(--bg-panel)'}; 
+                                       padding: 12px 16px; 
+                                       border-radius: 16px; 
+                                       border-bottom-${role === 'user' ? 'right' : 'left'}-radius: 4px;
+                                       border: 1px solid ${role === 'user' ? 'translate' : 'var(--border-light)'}">
+                                    ${text}
+                                </div>`;
+        }
+        
+        messagesContainer.appendChild(msgDiv);
+        messagesContainer.scrollTop = messagesContainer.scrollHeight;
+        return msgDiv; // Return element to allow updating (for streaming)
+    };
+
+    // Handle Send
+    const handleSend = async () => {
+        const text = inputArea.value.trim();
+        if (!text || !currentAgent || isGenerating) return;
+
+        // User message
+        appendMessage('user', text);
+        chatHistory.push({ role: 'user', content: text });
+        inputArea.value = '';
+        inputArea.style.height = 'auto'; // reset height
+
+        // Preparation for agent reply
+        isGenerating = true;
+        btnSend.disabled = true;
+        btnSend.innerHTML = '<i class="ph ph-spinner ph-spin"></i>';
+        
+        const replyDiv = appendMessage('agent', '');
+        const contentDiv = replyDiv.querySelector('div');
+        let fullReply = "";
+
+        // Call API
+        await chatWithModel(
+            currentAgent.model,
+            chatHistory,
+            (chunkText) => {
+                fullReply += chunkText;
+                // Basic markdown parsing to HTML might be needed here, 
+                // but for vanilla we just use innerText to handle raw text safely
+                contentDiv.innerText = fullReply;
+                messagesContainer.scrollTop = messagesContainer.scrollHeight;
+            },
+            () => {
+                isGenerating = false;
+                btnSend.innerHTML = '<i class="ph-fill ph-paper-plane-right"></i>';
+                btnSend.disabled = false;
+                chatHistory.push({ role: 'assistant', content: fullReply });
+                
+                // Focus input back
+                inputArea.focus();
+            }
+        );
+    };
+
+    // Bind events
+    btnSend.addEventListener('click', handleSend);
+    inputArea.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault();
+            handleSend();
+        }
+    });
+
+    // Auto resize textarea
+    inputArea.addEventListener('input', function() {
+        this.style.height = 'auto';
+        this.style.height = (this.scrollHeight) + 'px';
+        if(this.value.trim()) {
+            btnSend.disabled = false;
+        } else if(!isGenerating) {
+            btnSend.disabled = true;
+        }
+    });
+
+    container.appendChild(clone);
+    
+    // Initially disable if no agent selected
+    if (!currentAgent) {
+        document.getElementById('chat-input').disabled = true;
+        document.getElementById('btn-send-msg').disabled = true;
+    }
+}
