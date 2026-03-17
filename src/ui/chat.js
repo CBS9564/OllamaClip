@@ -163,6 +163,7 @@ export function renderChat(container, agents) {
         await chatWithModel(
             respondingAgent.model,
             apiPayloadHistory,
+            respondingAgent.options || {}, // V6: Pass custom agent tuning (temp, ctx)
             (chunkText) => {
                 fullReply += chunkText;
                 textNode.innerText = fullReply;

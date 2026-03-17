@@ -12,8 +12,13 @@ OllamaClip is a high-performance, lightweight web-based orchestration platform f
 - **Agent Orchestration**: Create AI agents and assign them specific roles, system prompts, and individual local models (e.g., Llama 3 for coding, Mistral for copy).
 - **Task Management System**: A dedicated UI to create tasks, assign them to specific agents in your workforce, and track their completion status.
 - **Shared Workspace Memory & Mentions (V3)**: All agents collaborate in a single, persistent Chat Workspace. Use `@AgentName` in your messages to summon specific models into the flow, equipped with zero-shot context switching and VRAM optimization (`keep_alive`).
-- **Interactive Dashboard & Model Manager (V5)**: Track active agents, view your workforce organizational chart, and directly manage local models. You can now **Delete** heavy models to free up disk space, or **Pull** new models directly from the Ollama Hub with real-time download progress.
-- **Persistent Local Memory**: All agent configurations, chat histories (per agent), and workflow tasks are kept strictly local in your browser via `localStorage`, maintaining full privacy and persisting across reloads.
+- **Interactive Dashboard & Model Manager (V5)**: Track active agents and manage local models. **Delete** models to free up space or **Pull** new ones directly from the Ollama Hub with real-time download progress.
+- **Advanced Agent Management (V6)**: 
+    - Full **Visual Agent Builder** Modal (replaces simple prompts).
+    - Advanced parameters: Tuning of **Temperature** and **Context Size** per agent.
+    - Custom **Accent Colors** for personalization.
+    - Dedicated **Agents Management** grid with Edit and Delete support.
+- **Persistent Local Memory**: All configurations, agents, chat histories, and tasks are stored strictly in `localStorage`, persisting across reloads while maintaining privacy.
 - **Settings & Configuration (V4)**: Modify your Ollama Base URL for remote instances, control model VRAM retention durations, and manage local data securely.
 
 ## Prerequisites

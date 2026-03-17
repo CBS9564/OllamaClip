@@ -4,6 +4,7 @@ import { renderChat } from './ui/chat.js';
 import { renderTasks } from './ui/tasks.js';
 import { renderSettings } from './ui/settings.js';
 import { renderModelsManager } from './ui/models.js';
+import { renderAgents } from './ui/agents.js';
 
 // Application State
 const appState = {
@@ -11,6 +12,7 @@ const appState = {
   agents: [],
   localModels: [],
   isOllamaOnline: false,
+  editingAgentId: null
 };
 
 // Colors for agents
@@ -92,8 +94,12 @@ function updateView() {
       renderChat(contentContainer, appState.agents);
       break;
     case 'agents':
-        // Reuse Dashboard for now for Agents view, real app would have specific list
-      renderDashboard(contentContainer, appState.agents, appState.localModels, appState, updateView);
+      renderAgents(
+          contentContainer, 
+          appState.agents, 
+          (id) => openAgentWizard(id), // Edit callback
+          (id) => deleteAgent(id)      // Delete callback
+      );
       break;
     case 'tasks':
       pageTitle.textContent = 'Workflow Tasks';
@@ -112,43 +118,126 @@ function updateView() {
   }
 }
 
-// Agent Wizard Modal (Prompt based for vanilla JS simplicity without huge DOM injections)
-function openAgentWizard() {
-    if (!appState.isOllamaOnline) {
-        alert("Ollama is not running. Please start Ollama before creating an agent.");
+// Agent Builder Modal Logic
+const modalOverlay = document.getElementById('agent-modal-overlay');
+const btnCloseModal = document.getElementById('btn-close-modal');
+const btnCancelModal = document.getElementById('btn-cancel-modal');
+const btnSaveAgent = document.getElementById('btn-save-agent');
+const tempInput = document.getElementById('agent-temperature');
+const tempValDisplay = document.getElementById('temp-val');
+
+// Update temperature display
+if(tempInput && tempValDisplay) {
+    tempInput.addEventListener('input', (e) => {
+        tempValDisplay.textContent = e.target.value;
+    });
+}
+
+function openAgentWizard(agentId = null) {
+    if (!appState.isOllamaOnline || appState.localModels.length === 0) {
+        alert("Ollama is not running or no models are installed. Please start Ollama before creating an agent.");
         return;
     }
 
-    const modelNames = appState.localModels.map(m => m.name).join('\n');
-    
-    setTimeout(() => {
-        const name = prompt("Enter Agent Name (e.g., 'CTO', 'Copywriter'):", "New Agent");
-        if (!name) return;
+    appState.editingAgentId = agentId;
+    const isEditing = !!agentId;
+    const agent = isEditing ? appState.agents.find(a => a.id === agentId) : null;
 
-        const role = prompt("Enter Agent Role (e.g., 'Lead Developer'):", "Assistant");
-        if (!role) return;
+    document.getElementById('modal-title').textContent = isEditing ? 'Edit Agent' : 'Create New Agent';
 
-        let model = prompt(`Available Models:\n${modelNames}\n\nEnter exact model name:`, appState.localModels[0]?.name || "");
-        if (!model) return;
+    // Populate model dropdown
+    const modelSelect = document.getElementById('agent-model');
+    modelSelect.innerHTML = appState.localModels.map(m => 
+        `<option value="${m.name}">${m.name} (${formatBytes(m.size)})</option>`
+    ).join('');
 
-        const systemPrompt = prompt("System Prompt (Instructions):", `You are ${name}, acting as the ${role}. Provide highly professional and concise answers.`);
-        if(!systemPrompt) return;
+    // Update Form fields
+    document.getElementById('agent-name').value = agent?.name || '';
+    document.getElementById('agent-role').value = agent?.role || '';
+    document.getElementById('agent-prompt').value = agent?.systemPrompt || '';
+    document.getElementById('agent-color').value = agent?.color || '#6366f1';
+    document.getElementById('agent-temperature').value = agent?.options?.temperature ?? 0.7;
+    document.getElementById('temp-val').textContent = agent?.options?.temperature ?? '0.7';
+    document.getElementById('agent-context').value = agent?.options?.num_ctx || '2048';
 
-        // Save Agent
-        const newAgent = {
-            id: Date.now().toString(),
+    modalOverlay.classList.add('active');
+}
+
+function deleteAgent(id) {
+    const agent = appState.agents.find(a => a.id === id);
+    if (!agent) return;
+
+    if (confirm(`Are you sure you want to delete the agent '${agent.name}'?`)) {
+        appState.agents = appState.agents.filter(a => a.id !== id);
+        localStorage.setItem('ollamaclip_agents', JSON.stringify(appState.agents));
+        updateView();
+    }
+}
+
+function closeAgentWizard() {
+    modalOverlay.classList.remove('active');
+}
+
+if(btnCloseModal) btnCloseModal.addEventListener('click', closeAgentWizard);
+if(btnCancelModal) btnCancelModal.addEventListener('click', closeAgentWizard);
+
+if(btnSaveAgent) {
+    btnSaveAgent.addEventListener('click', () => {
+        const name = document.getElementById('agent-name').value.trim();
+        const role = document.getElementById('agent-role').value.trim();
+        const model = document.getElementById('agent-model').value;
+        const color = document.getElementById('agent-color').value;
+        const systemPrompt = document.getElementById('agent-prompt').value.trim();
+        const temperature = parseFloat(document.getElementById('agent-temperature').value);
+        const numCtx = parseInt(document.getElementById('agent-context').value);
+
+        if(!name || !role || !systemPrompt) {
+            alert("Please fill in all required fields (Name, Role, Prompt).");
+            return;
+        }
+
+        const agentData = {
             name,
             role,
             model,
             systemPrompt,
-            color: colors[appState.agents.length % colors.length]
+            color,
+            options: {
+                temperature: temperature,
+                num_ctx: numCtx
+            }
         };
 
-        appState.agents.push(newAgent);
+        if (appState.editingAgentId) {
+            // Update existing
+            const index = appState.agents.findIndex(a => a.id === appState.editingAgentId);
+            if (index !== -1) {
+                appState.agents[index] = { ...appState.agents[index], ...agentData };
+            }
+        } else {
+            // Create new
+            const newAgent = {
+                id: Date.now().toString(),
+                ...agentData
+            };
+            appState.agents.push(newAgent);
+        }
+
         localStorage.setItem('ollamaclip_agents', JSON.stringify(appState.agents));
         
-        updateView(); // Re-render current view
-    }, 100);
+        closeAgentWizard();
+        updateView();
+    });
+}
+
+// Utility function to format bytes for the dropdown
+function formatBytes(bytes, decimals = 1) {
+    if (!+bytes) return '0 B';
+    const k = 1024;
+    const dm = decimals < 0 ? 0 : decimals;
+    const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return `${parseFloat((bytes / Math.pow(k, i)).toFixed(dm))} ${sizes[i]}`;
 }
 
 // Boot

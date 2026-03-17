@@ -30,8 +30,16 @@ export async function fetchLocalModels() {
  * @param {Function} onChunk - Callback for parsing streaming text chunks
  * @param {Function} onComplete - Callback when stream finishes
  */
-export async function chatWithModel(model, messages, onChunk, onComplete) {
+export async function chatWithModel(model, messages, options = {}, onChunk, onComplete) {
   try {
+    const defaultOptions = {
+        temperature: 0.7,
+        num_ctx: 2048
+    };
+    
+    // Merge provided agent options with defaults
+    const finalOptions = { ...defaultOptions, ...options };
+    
     const response = await fetch(`${getBaseUrl()}/chat`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -39,7 +47,8 @@ export async function chatWithModel(model, messages, onChunk, onComplete) {
         model: model,
         messages: messages,
         stream: true,
-        keep_alive: getKeepAlive() // V4 Optimization: Dynamic VRAM tuning
+        keep_alive: getKeepAlive(), // V4 Optimization: Dynamic VRAM tuning
+        options: finalOptions // V6 Agent Specific Tuning
       })
     });
 
