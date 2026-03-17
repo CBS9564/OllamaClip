@@ -37,7 +37,8 @@ export async function chatWithModel(model, messages, onChunk, onComplete) {
       body: JSON.stringify({
         model: model,
         messages: messages,
-        stream: true
+        stream: true,
+        keep_alive: "5m" // V3 Optimization: Keep model in memory to rapidly switch context
       })
     });
 
