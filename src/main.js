@@ -84,7 +84,7 @@ function updateView() {
 
   switch(appState.activeView) {
     case 'dashboard':
-      renderDashboard(contentContainer, appState.agents, appState.localModels);
+      renderDashboard(contentContainer, appState.agents, appState.localModels, appState, updateView);
       break;
     case 'chat':
       pageTitle.textContent = 'Inbox';
@@ -92,7 +92,7 @@ function updateView() {
       break;
     case 'agents':
         // Reuse Dashboard for now for Agents view, real app would have specific list
-      renderDashboard(contentContainer, appState.agents, appState.localModels);
+      renderDashboard(contentContainer, appState.agents, appState.localModels, appState, updateView);
       break;
     case 'tasks':
       pageTitle.textContent = 'Workflow Tasks';

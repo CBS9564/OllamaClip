@@ -110,6 +110,40 @@
             <p class="empty-state">No agents configured yet. Create one to get started.</p>
           </div>
         </div>
+
+        <div class="model-manager-section" style="margin-top: 16px;">
+          <h2>Model Manager</h2>
+          <div class="model-manager glass-panel" style="padding: 24px; display: flex; flex-direction: column; gap: 24px;">
+            
+            <div class="pull-model-area" style="display: flex; gap: 12px; align-items: flex-end;">
+                <div class="form-group" style="flex: 1;">
+                   <label for="input-pull-model">Download Model from Ollama Hub</label>
+                   <input type="text" id="input-pull-model" class="setting-input" placeholder="e.g. llama3.1, mistral:7b" />
+                </div>
+                <button class="btn btn-primary" id="btn-pull-model" style="height: 46px;">
+                   <i class="ph ph-cloud-arrow-down"></i> Pull Model
+                </button>
+            </div>
+            
+            <div id="pull-progress-container" style="display: none; flex-direction: column; gap: 8px;">
+               <div style="display: flex; justify-content: space-between; font-size: 0.85rem; color: var(--text-secondary);">
+                  <span id="pull-status-text">Downloading...</span>
+                  <span id="pull-percentage">0%</span>
+               </div>
+               <div style="height: 8px; background: rgba(0,0,0,0.3); border-radius: 4px; overflow: hidden;">
+                  <div id="pull-progress-bar" style="height: 100%; width: 0%; background: var(--accent-primary); transition: width 0.2s;"></div>
+               </div>
+            </div>
+
+            <div class="installed-models-area">
+                <h3 style="font-size: 1rem; margin-bottom: 12px; color: var(--text-secondary); border-bottom: 1px solid var(--border-light); padding-bottom: 8px;">Installed Local Models</h3>
+                <div id="local-models-list" style="display: flex; flex-direction: column; gap: 8px;">
+                   <!-- Injected via JS -->
+                </div>
+            </div>
+
+          </div>
+        </div>
       </div>
     </template>
 

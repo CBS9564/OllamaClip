@@ -80,3 +80,76 @@ export async function chatWithModel(model, messages, onChunk, onComplete) {
     if(onComplete) onComplete();
   }
 }
+
+/**
+ * Pull a model from the Ollama library
+ * @param {string} name - Model name (e.g., 'llama3.1')
+ * @param {Function} onProgress - Callback with progress percentage {status, completed, total}
+ * @param {Function} onComplete - Callback when download finishes
+ * @param {Function} onError - Callback for errors
+ */
+export async function pullModel(name, onProgress, onComplete, onError) {
+  try {
+    const response = await fetch(`${getBaseUrl()}/pull`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: name, stream: true })
+    });
+
+    if (!response.ok) {
+      throw new Error(`Failed to pull model: ${response.status} ${response.statusText}`);
+    }
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder('utf-8');
+    let done = false;
+
+    while (!done) {
+      const { value, done: readerDone } = await reader.read();
+      done = readerDone;
+      if (value) {
+        const chunkStr = decoder.decode(value, { stream: true });
+        const lines = chunkStr.split('\n').filter(line => line.trim() !== '');
+
+        for (const line of lines) {
+          try {
+            const parsed = JSON.parse(line);
+            
+            // Expected shape: {status: "downloading...", digest: "...", total: 123, completed: 45}
+            if (onProgress) {
+                onProgress(parsed);
+            }
+          } catch(e) {
+            console.warn("Could not parse pull progress chunk:", line);
+          }
+        }
+      }
+    }
+
+    if (onComplete) onComplete();
+
+  } catch (error) {
+    console.error("Pull error:", error);
+    if (onError) onError(error);
+  }
+}
+
+/**
+ * Delete a local model from Ollama
+ * @param {string} name - Model name (e.g., 'llama3.1:latest')
+ * @returns {Promise<boolean>} Success status
+ */
+export async function deleteModel(name) {
+  try {
+    const response = await fetch(`${getBaseUrl()}/delete`, {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: name })
+    });
+    
+    return response.ok;
+  } catch (error) {
+    console.error("Delete error:", error);
+    return false;
+  }
+}
