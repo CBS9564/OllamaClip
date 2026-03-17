@@ -9,6 +9,8 @@ export function renderChat(container, agents) {
     const inputArea = clone.querySelector('#chat-input');
     const btnSend = clone.querySelector('#btn-send-msg');
     const messagesContainer = clone.querySelector('#chat-messages');
+    const currentAgentName = clone.querySelector('#current-chat-agent');
+    const currentAgentModel = clone.querySelector('#current-chat-model');
     
     let currentAgent = null;
     let chatHistory = [];
@@ -17,23 +19,67 @@ export function renderChat(container, agents) {
     // ----------------------------------------------------
     // Shared Workspace: One global history for ALL agents
     // ----------------------------------------------------
+    
+    // Append a message to the UI
+    const appendMessage = (role, text, agentName = null, agentColor = 'var(--accent-primary)', isProactive = false) => {
+        const msgDiv = document.createElement('div');
+        msgDiv.className = `message ${role} ${isProactive ? 'proactive' : ''}`;
+        
+        if (role === 'system') {
+            msgDiv.innerHTML = `<p>${text}</p>`;
+        } else {
+            let nameTag = '';
+            if (role === 'agent' && agentName) {
+                nameTag = `<div style="font-size: 0.7rem; color: ${agentColor}; margin-bottom: 4px; font-weight: 600;"><i class="ph-fill ph-robot"></i> ${agentName}</div>`;
+            }
+
+            const bgColor = role === 'user' ? 'var(--accent-primary)' : 
+                           (isProactive ? 'rgba(0,0,0,0.3)' : 'var(--bg-panel)');
+            const border = isProactive ? '1px dashed var(--border-light)' : '1px solid ' + (role === 'user' ? 'transparent' : 'var(--border-light)');
+
+            msgDiv.innerHTML = `<div style="background: ${bgColor}; 
+                                       padding: 12px 16px; 
+                                       border-radius: 16px; 
+                                       border-bottom-${role === 'user' ? 'right' : 'left'}-radius: 4px;
+                                       border: ${border}">
+                                    ${nameTag}
+                                    ${text}
+                                </div>`;
+        }
+        
+        messagesContainer.appendChild(msgDiv);
+        messagesContainer.scrollTop = messagesContainer.scrollHeight;
+        return msgDiv; // Return element to allow updating (for streaming)
+    };
+
     const loadSharedWorkspace = () => {
         const savedHistory = localStorage.getItem('ollamaclip_shared_workspace');
         if (savedHistory) {
             chatHistory = JSON.parse(savedHistory);
             chatHistory.forEach(msg => {
                 if (msg.role === 'system') {
-                   // Only show system messages if they are recent/relevant, 
-                   // but for simple UI we can skip rendering past system init prompts
+                   // Only show system messages if they are recent/relevant
                 } else if (msg.role === 'assistant') {
-                    // It's an agent reply. The message object should store WHICH agent replied.
-                    appendMessage('agent', msg.content, msg.agentName, msg.agentColor);
+                    const label = msg.isProactive ? `${msg.agentName} (Proactive)` : msg.agentName;
+                    appendMessage('agent', msg.content, label, msg.agentColor, msg.isProactive);
                 } else {
                     appendMessage('user', msg.content);
                 }
             });
         }
     };
+
+    // Clean up existing listener if any to avoid duplicates
+    if (window._onProactiveMessage) {
+        window.removeEventListener('ollamaclip_new_message', window._onProactiveMessage);
+    }
+
+    // Live update listener for Heartbeat messages
+    window._onProactiveMessage = (e) => {
+        const { agent, message } = e.detail;
+        appendMessage('agent', message, `${agent.name} (Proactive)`, agent.color, true);
+    };
+    window.addEventListener('ollamaclip_new_message', window._onProactiveMessage);
 
     const saveSharedWorkspace = () => {
         localStorage.setItem('ollamaclip_shared_workspace', JSON.stringify(chatHistory));
@@ -52,8 +98,8 @@ export function renderChat(container, agents) {
         // Automatically select the first agent if none is active
         if (!currentAgent && agents.length > 0) {
             currentAgent = agents[0];
-            document.getElementById('current-chat-agent').textContent = currentAgent.name;
-            document.getElementById('current-chat-model').textContent = currentAgent.model;
+            if (currentAgentName) currentAgentName.textContent = currentAgent.name;
+            if (currentAgentModel) currentAgentModel.textContent = currentAgent.model;
             inputArea.disabled = false;
             btnSend.disabled = false;
         }
@@ -70,8 +116,8 @@ export function renderChat(container, agents) {
                 
                 // Set current agent Context
                 currentAgent = agent;
-                document.getElementById('current-chat-agent').textContent = agent.name;
-                document.getElementById('current-chat-model').textContent = agent.model;
+                if (currentAgentName) currentAgentName.textContent = agent.name;
+                if (currentAgentModel) currentAgentModel.textContent = agent.model;
                 inputArea.placeholder = `Message ${agent.name} (use @ to mention others)...`;
                 
                 // Enable input
@@ -82,33 +128,7 @@ export function renderChat(container, agents) {
         });
     }
 
-    // Append a message to the UI
-    const appendMessage = (role, text, agentName = null, agentColor = 'var(--accent-primary)') => {
-        const msgDiv = document.createElement('div');
-        msgDiv.className = `message ${role}`;
-        
-        if (role === 'system') {
-            msgDiv.innerHTML = `<p>${text}</p>`;
-        } else {
-            let nameTag = '';
-            if (role === 'agent' && agentName) {
-                nameTag = `<div style="font-size: 0.7rem; color: ${agentColor}; margin-bottom: 4px; font-weight: 600;"><i class="ph-fill ph-robot"></i> ${agentName}</div>`;
-            }
 
-            msgDiv.innerHTML = `<div style="background: ${role === 'user' ? 'var(--accent-primary)' : 'var(--bg-panel)'}; 
-                                       padding: 12px 16px; 
-                                       border-radius: 16px; 
-                                       border-bottom-${role === 'user' ? 'right' : 'left'}-radius: 4px;
-                                       border: 1px solid ${role === 'user' ? 'transparent' : 'var(--border-light)'}">
-                                    ${nameTag}
-                                    ${text}
-                                </div>`;
-        }
-        
-        messagesContainer.appendChild(msgDiv);
-        messagesContainer.scrollTop = messagesContainer.scrollHeight;
-        return msgDiv; // Return element to allow updating (for streaming)
-    };
 
     // Handle Send
     const handleSend = async () => {
@@ -213,7 +233,7 @@ export function renderChat(container, agents) {
     
     // Initially disable if no agent selected
     if (!currentAgent) {
-        document.getElementById('chat-input').disabled = true;
-        document.getElementById('btn-send-msg').disabled = true;
+        inputArea.disabled = true;
+        btnSend.disabled = true;
     }
 }

@@ -23,6 +23,11 @@ OllamaClip is a high-performance, lightweight web-based orchestration platform f
     - Synchronizes internal state with the filesystem on every launch.
 - **Local Persistence Bridge**: A built-in Node.js Express server handles secure local file operations, ensuring data sovereignty and privacy.
 - **Settings & Configuration (V4)**: Modify your Ollama Base URL, control model VRAM retention, and manage local data.
+- **Agent Heartbeat System (V10)**: 
+    - **Autonomous Processing**: Agents can now work in the background on assigned tasks via a 30s "Heartbeat" loop.
+    - **Proactive Messaging**: Agents autonomously post progress updates or clarify questions (using `[QUESTION]` tag) to the Inbox.
+    - **Auto-Stop Logic**: Agents signal completion with `[DONE]`, automatically closing tasks and stopping the heartbeat.
+    - **UI Feedback**: Pulsing heartbeat icons and status badges (Processing, Needs Input) for real-time task tracking.
 
 ## Prerequisites
 
@@ -66,6 +71,7 @@ OllamaClip is a high-performance, lightweight web-based orchestration platform f
 -   `src/style.css`: Core design system, CSS variables, Glassmorphism utilities, and responsive layouts.
 -   `src/main.js`: Setup logic, router, state management (`appState`), and the Agent Creation Wizard logic.
 -   `src/api/ollama.js`: Network layer containing `fetchLocalModels` and `chatWithModel` (handles text streaming).
+-   `src/api/heartbeat.js`: Autonomous task management engine and proactive messaging loop.
 -   `src/ui/dashboard.js`: Rendering logic for the stats and organizational chart.
 -   `src/ui/chat.js`: Chat interface rendering, text streaming UI logic, persistent memory save/load methods, and user input handling.
 -   `src/ui/tasks.js`: Complete task management interface with assignment logic and state persistence.

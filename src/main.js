@@ -5,6 +5,7 @@ import { renderTasks } from './ui/tasks.js';
 import { renderSettings } from './ui/settings.js';
 import { renderModelsManager } from './ui/models.js';
 import { renderAgents } from './ui/agents.js';
+import { HeartbeatManager } from './api/heartbeat.js';
 
 // Application State
 const appState = {
@@ -13,7 +14,8 @@ const appState = {
   localModels: [],
   isOllamaOnline: false,
   editingAgentId: null,
-  backendUrl: 'http://localhost:3001/api'
+  backendUrl: 'http://localhost:3001/api',
+  heartbeat: null
 };
 
 // Colors for agents
@@ -47,7 +49,29 @@ async function init() {
   // 2. Sync with Filesystem (Source of Truth)
   await syncAgentsWithFileSystem();
 
-  // 3. Bind Navigation
+  // 3. Initialize Heartbeat (Autonomous Mode)
+  appState.heartbeat = new HeartbeatManager(() => appState.agents, (agent, message) => {
+      console.log(`[PROACTIVE] ${agent.name}: ${message}`);
+      
+      // Save proactive message to shared workspace
+      const history = JSON.parse(localStorage.getItem('ollamaclip_shared_workspace') || '[]');
+      history.push({
+          role: 'assistant',
+          content: message,
+          agentName: agent.name,
+          agentColor: agent.color,
+          isProactive: true // Metadata to distinguish autonomous thoughts
+      });
+      localStorage.setItem('ollamaclip_shared_workspace', JSON.stringify(history));
+      
+      // Notify components (Chat UI mainly)
+      window.dispatchEvent(new CustomEvent('ollamaclip_new_message', { 
+          detail: { agent, message } 
+      }));
+  });
+  appState.heartbeat.start();
+
+  // 4. Bind Navigation
   navItems.forEach(item => {
     item.addEventListener('click', (e) => {
       // Find parent button if icon is clicked

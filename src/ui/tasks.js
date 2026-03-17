@@ -61,8 +61,22 @@ export function renderTasks(container, agents) {
                       <span style="color: var(--text-muted)">Created ${new Date(task.createdAt).toLocaleDateString()}</span>
                   </div>
               </div>
-              <button class="task-delete" title="Delete Task"><i class="ph ph-trash"></i></button>
+              <div class="task-actions" style="display:flex; gap:8px; align-items:center;">
+                  ${!task.completed ? `
+                  <button class="task-heartbeat ${task.heartbeat ? 'active' : ''}" title="Toggle Autonomous Mode">
+                      <i class="ph-fill ph-heartbeat"></i>
+                  </button>` : ''}
+                  <button class="task-delete" title="Delete Task"><i class="ph ph-trash"></i></button>
+              </div>
           `;
+
+          // Status Badge
+          if (task.status) {
+              const statusDiv = document.createElement('div');
+              statusDiv.className = `status-badge ${task.status}`;
+              statusDiv.textContent = task.status.replace('_', ' ').toUpperCase();
+              li.querySelector('.task-meta').appendChild(statusDiv);
+          }
 
           // Toggle Complete
           li.querySelector('.task-checkbox').addEventListener('click', () => {
@@ -72,13 +86,28 @@ export function renderTasks(container, agents) {
           });
 
           // Delete
-          li.querySelector('.task-delete').addEventListener('click', () => {
+          li.querySelector('.task-delete').addEventListener('click', (e) => {
+              e.stopPropagation();
+              console.log(`[TASKS] Request to delete task: ${task.id} (${task.title})`);
               if (confirm("Delete this task?")) {
                   tasks = tasks.filter(t => t.id !== task.id);
                   saveTasks();
                   renderList();
+                  console.log(`[TASKS] Task ${task.id} deleted successfully.`);
               }
           });
+
+          // Toggle Heartbeat
+          const hbBtn = li.querySelector('.task-heartbeat');
+          if (hbBtn) {
+              hbBtn.addEventListener('click', (e) => {
+                  e.stopPropagation();
+                  task.heartbeat = !task.heartbeat;
+                  if (task.heartbeat && !task.status) task.status = 'processing';
+                  saveTasks();
+                  renderList();
+              });
+          }
 
           if (task.completed) {
               completedTaskList.appendChild(li);
@@ -111,6 +140,16 @@ export function renderTasks(container, agents) {
   titleInput.addEventListener('keydown', (e) => {
       if (e.key === 'Enter') handleAdd();
   });
+
+  // Listen for Heartbeat status updates
+  if (window._onTasksUpdated) {
+      window.removeEventListener('ollamaclip_tasks_updated', window._onTasksUpdated);
+  }
+  window._onTasksUpdated = () => {
+      tasks = JSON.parse(localStorage.getItem('ollamaclip_tasks') || '[]');
+      renderList();
+  };
+  window.addEventListener('ollamaclip_tasks_updated', window._onTasksUpdated);
 
   // Initial render
   renderList();
