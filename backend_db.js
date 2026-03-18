@@ -57,32 +57,20 @@ const db = new sqlite3.Database(dbPath, (err) => {
             db.run("INSERT OR IGNORE INTO settings (key, value) VALUES ('ollamaclip_api_url', 'http://localhost:11434/api')");
             db.run("INSERT OR IGNORE INTO settings (key, value) VALUES ('ollamaclip_keep_alive', '5m')");
 
-            ensureDefaultWorkspace();
             ensureDefaultProject();
         });
     }
 });
 
-function ensureDefaultWorkspace() {
-    db.get("SELECT id, name FROM workspaces WHERE id = 'default_workspace'", (err, row) => {
-        if (!row && !err) {
-            db.run("INSERT INTO workspaces (id, name) VALUES ('default_workspace', 'My Global Workspace')");
-            ensureWorkspaceDir('My Global Workspace');
-        } else if (row) {
-            ensureWorkspaceDir(row.name);
-        }
-    });
-}
-
-function ensureWorkspaceDir(name) {
-    const dir = path.join(__dirname, 'Workspaces', name);
+function ensureWorkspacesRoot() {
+    const dir = path.join(__dirname, 'Workspaces');
     if (!fs.existsSync(dir)) {
         fs.mkdirSync(dir, { recursive: true });
-        console.log(`[Database] Created Workspace directory: ${dir}`);
     }
 }
 
 function ensureDefaultProject() {
+    ensureWorkspacesRoot();
     db.get("SELECT p.id, p.name FROM projects p WHERE p.id = 'default_project'", (err, row) => {
         if (!row && !err) {
             db.run("INSERT INTO projects (id, workspace_id, name) VALUES ('default_project', 'default_workspace', 'Main Project')");
@@ -91,30 +79,6 @@ function ensureDefaultProject() {
             ensureProjectDir(row.name);
         }
     });
-
-    // --- MIGRATION: Flatten "My Global Workspace" ---
-    const legacyWS = path.join(__dirname, 'Workspaces', 'My Global Workspace');
-    const rootWS = path.join(__dirname, 'Workspaces');
-    if (fs.existsSync(legacyWS)) {
-        console.log("[Migration] Found legacy 'My Global Workspace'. Flattening...");
-        try {
-            const items = fs.readdirSync(legacyWS);
-            for (const item of items) {
-                const oldPath = path.join(legacyWS, item);
-                const newPath = path.join(rootWS, item);
-                if (!fs.existsSync(newPath)) {
-                    fs.renameSync(oldPath, newPath);
-                    console.log(`[Migration] Moved ${item} to root Workspaces/`);
-                }
-            }
-            // Cleanup empty legacy folder
-            if (fs.readdirSync(legacyWS).length === 0) {
-                fs.rmdirSync(legacyWS);
-            }
-        } catch (e) {
-            console.error("[Migration] Error flattening workspace layer:", e);
-        }
-    }
 }
 
 export function ensureProjectDir(projectName) {
