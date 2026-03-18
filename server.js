@@ -11,7 +11,6 @@ const __dirname = path.dirname(__filename);
 
 const app = express();
 const PORT = 3001;
-const AGENTS_DIR = path.join(__dirname, 'Agent');
 
 app.use(cors());
 app.use(bodyParser.json());
@@ -29,8 +28,8 @@ async function resolveAgentPath(agentId, filename) {
         return path.join(getProjectAgentsPath(meta.project_name), filename);
     }
     
-    // 2. Fallback to global Agent/ if not found or DB missing
-    return path.join(AGENTS_DIR, filename);
+    // Fallback if not found in DB
+    throw new Error(`Agent ${agentId} not found in database.`);
 }
 
 // Convert Agent JSON to Markdown
@@ -172,23 +171,6 @@ app.get('/api/load-agents', async (req, res) => {
             } catch (e) { console.warn(`[Persistence] Agent file missing at ${agentPath}`); }
         }
 
-        // 2. Legacy Fallback: Scan global Agent/ directory
-        try {
-            const legacyFiles = await fs.readdir(AGENTS_DIR);
-            for (const file of legacyFiles) {
-                if (file.endsWith('.md')) {
-                    const content = await fs.readFile(path.join(AGENTS_DIR, file), 'utf-8');
-                    const agent = markdownToJson(content, file);
-                    if (!seenIds.has(agent.id)) {
-                        agent.projectId = 'default_project';
-                        agents.push(agent);
-                        // Auto-register legacy agents in DB
-                        await dbRun(`INSERT OR IGNORE INTO agents_meta (id, project_id, filename) VALUES (?, ?, ?)`, [agent.id, 'default_project', file]);
-                    }
-                }
-            }
-        } catch (e) { /* ignore if legacy dir doesn't exist */ }
-
         res.json(agents);
     } catch (error) {
         console.error("[Persistence] Load error:", error);
@@ -222,7 +204,7 @@ app.post('/api/projects', async (req, res) => {
         if (!name) return res.status(400).json({ error: "Name is required" });
         
         const id = 'project_' + Date.now().toString(36) + Math.random().toString(36).substr(2, 5);
-        await dbRun("INSERT INTO projects (id, workspace_id, name) VALUES (?, 'default_workspace', ?)", [id, name]);
+        await dbRun("INSERT INTO projects (id, name) VALUES (?, ?)", [id, name]);
         
         ensureProjectDir(name);
         res.json({ id, name, success: true });
@@ -293,10 +275,9 @@ app.post('/api/settings', async (req, res) => {
 app.get('/api/tasks', async (req, res) => {
     try {
         const sql = `
-            SELECT t.*, p.name as project_name, w.name as workspace_name 
+            SELECT t.*, p.name as project_name
             FROM tasks t
             LEFT JOIN projects p ON t.project_id = p.id
-            LEFT JOIN workspaces w ON p.workspace_id = w.id
         `;
         const tasks = await dbQuery(sql);
         // SQLite stores boolean as 0/1, map back to true/false for frontend
@@ -307,7 +288,6 @@ app.get('/api/tasks', async (req, res) => {
             agentId: t.agent_id,
             projectId: t.project_id,
             projectName: t.project_name,
-            workspaceName: t.workspace_name,
             createdAt: t.created_at
         }));
         res.json(mappedTasks);
@@ -395,6 +375,5 @@ app.post('/api/workspace/file', async (req, res) => {
 });
 
 app.listen(PORT, () => {
-    console.log(`\n🚀 [OllamaClip Backend] Persistence Bridge running at http://localhost:${PORT}`);
-    console.log(`📂 Monitoring directory: ${AGENTS_DIR}\n`);
+    console.log(`\n🚀 [OllamaClip Backend] Persistence Bridge running at http://localhost:${PORT}\n`);
 });

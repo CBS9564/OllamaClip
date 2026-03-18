@@ -14,18 +14,10 @@ const db = new sqlite3.Database(dbPath, (err) => {
         console.log("[Database] Connected to SQLite.");
         
         db.serialize(() => {
-            db.run(`CREATE TABLE IF NOT EXISTS workspaces (
+            db.run(`CREATE TABLE IF NOT EXISTS projects (
                 id TEXT PRIMARY KEY,
                 name TEXT NOT NULL,
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-            )`);
-
-            db.run(`CREATE TABLE IF NOT EXISTS projects (
-                id TEXT PRIMARY KEY,
-                workspace_id TEXT,
-                name TEXT NOT NULL,
-                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY(workspace_id) REFERENCES workspaces(id)
             )`);
 
             db.run(`CREATE TABLE IF NOT EXISTS agents_meta (
@@ -73,7 +65,7 @@ function ensureDefaultProject() {
     ensureWorkspacesRoot();
     db.get("SELECT p.id, p.name FROM projects p WHERE p.id = 'default_project'", (err, row) => {
         if (!row && !err) {
-            db.run("INSERT INTO projects (id, workspace_id, name) VALUES ('default_project', 'default_workspace', 'Main Project')");
+            db.run("INSERT INTO projects (id, name) VALUES ('default_project', 'Main Project')");
             ensureProjectDir('Main Project');
         } else if (row) {
             ensureProjectDir(row.name);
