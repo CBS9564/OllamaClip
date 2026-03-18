@@ -284,13 +284,12 @@ async function deleteAgent(id) {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ 
-                name: agent.name, 
-                role: agent.role,
+                id: id,
                 filename: agent.filename 
             })
         });
     } catch(e) {
-        console.warn("Failed to delete physical file:", e);
+        console.warn("[Persistence] Deletion request failed:", e);
     }
 
     updateView();
@@ -399,7 +398,13 @@ if(btnSaveAgent) {
                 body: JSON.stringify(targetAgent)
             })
             .then(res => res.json())
-            .then(data => console.log("[Persistence] Physical sync successful:", data.filename))
+            .then(data => {
+                if (data.success && data.filename) {
+                    targetAgent.filename = data.filename;
+                    localStorage.setItem('ollamaclip_agents', JSON.stringify(appState.agents));
+                    console.log("[Persistence] Physical sync successful, filename cached:", data.filename);
+                }
+            })
             .catch(e => console.error("[Persistence] Physical sync failed:", e));
         }
 

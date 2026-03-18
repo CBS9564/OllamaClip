@@ -135,7 +135,12 @@ app.post('/api/delete-agent', async (req, res) => {
         if (!id || !filename) return res.status(400).json({ error: "Missing agent ID or filename" });
 
         const filePath = await resolveAgentPath(id, filename);
-        try { await fs.unlink(filePath); } catch (e) { /* ignore */ }
+        try { 
+            await fs.unlink(filePath); 
+            console.log(`[Persistence] Physically deleted agent file: ${filePath}`);
+        } catch (e) { 
+            console.warn(`[Persistence] Could not delete file ${filePath}:`, e.message);
+        }
         
         await dbRun(`DELETE FROM tasks WHERE agent_id = ?`, [id]);
         await dbRun(`DELETE FROM agents_meta WHERE id = ?`, [id]);
