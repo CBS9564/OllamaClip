@@ -98,15 +98,40 @@ export class HeartbeatManager {
                 // we'll wait for completion or send it via callback
             },
             () => {
-                // Check if agent is asking a question or is done
-                if (fullReply.includes('[DONE]')) {
-                    this.updateTaskCompletion(task.id);
+                // --- Detect Progress & Control Tags ---
+                const hasComplete = fullReply.includes('[TASK_COMPLETE]');
+                const hasPause = fullReply.includes('[TASK_PAUSE]');
+                const hasTransfer = fullReply.includes('[TASK_TRANSFER:');
+                const hasStatus = fullReply.includes('[TASK_STATUS:');
+                const hasSave = fullReply.includes('[SAVE:');
+                const hasQuestion = fullReply.includes('QUESTION') || fullReply.includes('[QUESTION]');
+                const hasWaiting = fullReply.includes('WAITING');
+
+                let finalStatus = 'processing';
+                let finalHeartbeat = task.heartbeat;
+
+                if (hasComplete) {
+                    finalStatus = 'completed';
+                    finalHeartbeat = 0;
+                } else if (hasPause) {
+                    finalStatus = 'paused';
+                    finalHeartbeat = 0;
+                } else if (hasQuestion || hasWaiting) {
+                    finalStatus = 'needs_input';
+                    finalHeartbeat = 1; // Keep heartbeat on, but it will be filtered out by tick() due to status
+                } else if (!hasStatus && !hasSave && !hasTransfer) {
+                    // AUTO-PAUSE: If no specific action tags were used, assume task is idling/waiting for feedback
+                    console.log(`[Heartbeat] Agent ${agent.name} provided no progress tags. Auto-pausing heartbeat.`);
+                    finalStatus = 'awaiting feedback';
+                    finalHeartbeat = 0;
+                    cleanedReply += "\n\n*(Auto-paused heartbeat: No specific progress tags detected)*";
                 }
-                if (fullReply.includes('WAITING') || fullReply.includes('QUESTION')) {
-                    this.updateTask(task.id, { status: 'needs_input' });
-                } else {
-                    this.updateTask(task.id, { status: 'processing' });
-                }
+
+                this.updateTask(task.id, { 
+                    status: finalStatus, 
+                    heartbeat: finalHeartbeat,
+                    completed: hasComplete ? 1 : 0 
+                });
 
                 // --- Parse and Sync Files ---
                 const saveRegex = /\[SAVE:([^\]]+)\]([\s\S]*?)\[\/SAVE\]/img;
@@ -133,44 +158,18 @@ export class HeartbeatManager {
                     cleanedReply = cleanedReply.replace(match[0], `*(Saved file: ${filename})*`);
                 }
 
-                // 2. Task Control Tags
+                // 2. Task Control Tags (Already handled by the new logic above, but we still want to clean the UI text)
                 const statusRegex = /\[TASK_STATUS:(.*?)\]/g;
                 const completeRegex = /\[TASK_COMPLETE\]/g;
                 const pauseRegex = /\[TASK_PAUSE\]/g;
                 const transferRegex = /\[TASK_TRANSFER:(.*?)\]/g;
 
-                // Handle TASK_STATUS
-                while ((match = statusRegex.exec(fullReply)) !== null) {
-                    const newStatus = match[1].trim();
-                    this.updateTask(task.id, { status: newStatus });
-                    cleanedReply = cleanedReply.replace(match[0], `*(Updated status: ${newStatus})*`);
-                }
-
-                // Handle TASK_COMPLETE
-                while ((match = completeRegex.exec(fullReply)) !== null) {
-                    this.updateTask(task.id, { completed: 1, heartbeat: 0 });
-                    cleanedReply = cleanedReply.replace(match[0], `*(Task Completed)*`);
-                }
-
-                // Handle TASK_PAUSE
-                while ((match = pauseRegex.exec(fullReply)) !== null) {
-                    this.updateTask(task.id, { heartbeat: 0 });
-                    cleanedReply = cleanedReply.replace(match[0], `*(Task Paused)*`);
-                }
-
-                // Handle TASK_TRANSFER
-                while ((match = transferRegex.exec(fullReply)) !== null) {
-                    const targetAgentName = match[1].trim();
-                    const agentsList = this.getAgents();
-                    const targetAgent = agentsList.find(a => a.name.toLowerCase() === targetAgentName.toLowerCase());
-                    
-                    if (targetAgent) {
-                        this.updateTask(task.id, { agentId: targetAgent.id });
-                        cleanedReply = cleanedReply.replace(match[0], `*(Transferred task to: ${targetAgent.name})*`);
-                    } else {
-                        cleanedReply = cleanedReply.replace(match[0], `*(Attempted transfer to ${targetAgentName} - Agent not found)*`);
-                    }
-                }
+                // Cleanup tags from the cleanedReply for UI display
+                cleanedReply = cleanedReply.replace(statusRegex, (m, status) => `*(Updated status: ${status})*`);
+                cleanedReply = cleanedReply.replace(completeRegex, "*(Task Completed)*");
+                cleanedReply = cleanedReply.replace(pauseRegex, "*(Task Paused)*");
+                cleanedReply = cleanedReply.replace(transferRegex, (m, name) => `*(Transferred task to: ${name})*`);
+                cleanedReply = cleanedReply.replace(/\[DONE\]/g, "*(Finished)*");
 
                 // Notify UI to display the proactive thought/action
                 if (this.onProactiveMessage) {

@@ -334,6 +334,7 @@ app.put('/api/tasks/:id', async (req, res) => {
         if (updates.length > 0) {
             params.push(taskId);
             await dbRun(`UPDATE tasks SET ${updates.join(', ')} WHERE id = ?`, params);
+            console.log(`[Persistence] Updated task ${taskId}: ${updates.join(', ')} (Params: ${params.slice(0, -1)})`);
         }
         res.json({ success: true });
     } catch (error) {
