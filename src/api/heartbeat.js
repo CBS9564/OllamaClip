@@ -98,6 +98,9 @@ export class HeartbeatManager {
                 // we'll wait for completion or send it via callback
             },
             () => {
+                // --- Initialize reply processing ---
+                let cleanedReply = fullReply;
+                
                 // --- Detect Progress & Control Tags ---
                 const hasComplete = fullReply.includes('[TASK_COMPLETE]');
                 const hasPause = fullReply.includes('[TASK_PAUSE]');
@@ -136,7 +139,7 @@ export class HeartbeatManager {
                 // --- Parse and Sync Files ---
                 const saveRegex = /\[SAVE:([^\]]+)\]([\s\S]*?)\[\/SAVE\]/img;
                 let match;
-                let cleanedReply = fullReply;
+                // cleanedReply already initialized above
 
                 while ((match = saveRegex.exec(fullReply)) !== null) {
                     const filename = match[1].trim();

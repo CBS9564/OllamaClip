@@ -112,29 +112,45 @@ export function renderChat(container, agents, appState) {
     window._onProactiveMessage = (e) => {
         const { agent, message, taskId, taskTitle } = e.detail;
         
-        // If we are currently viewing the Inbox AND either in Global OR the specific agent's thread
+        // 1. Persist it in History IMMEDIATELY
+        // Find the correct history (either the agent's private or global)
+        // Note: For now, we save it to the AGENT'S channel since it's an agent proactive thought
+        const key = getHistoryKey(agent.id);
+        const existingHistory = JSON.parse(localStorage.getItem(key) || '[]');
+        existingHistory.push({
+            role: 'assistant',
+            content: message,
+            agentName: agent.name,
+            agentColor: agent.color,
+            isProactive: true,
+            taskTitle: taskTitle || null
+        });
+        localStorage.setItem(key, JSON.stringify(existingHistory));
+
+        // 2. If we are currently viewing the Inbox AND either in Global OR the specific agent's thread
         if (!currentAgent || currentAgent.id === agent.id) {
+            // Re-sync local chatHistory variable if we are in this thread
+            if (currentAgent && currentAgent.id === agent.id) {
+                chatHistory = existingHistory;
+            }
             appendMessage('agent', message, `${agent.name} (Proactive)`, agent.color, true, taskTitle);
             clearUnread(currentAgent ? currentAgent.id : null);
         }
     };
     window.addEventListener('ollamaclip_new_message', window._onProactiveMessage);
 
-    // Add Clear Chat button to Header
-    const chatHeader = clone.querySelector('.chat-header');
-    const clearBtn = document.createElement('button');
-    clearBtn.className = 'btn btn-secondary btn-sm';
-    clearBtn.innerHTML = '<i class="ph ph-trash"></i> Clear Chat';
-    clearBtn.style.padding = '4px 8px';
-    clearBtn.style.fontSize = '0.75rem';
-    clearBtn.addEventListener('click', () => {
-        if (confirm("Clear this conversation history?")) {
-            chatHistory = [];
-            saveChatHistory(currentAgent ? currentAgent.id : null);
-            loadChatHistory(currentAgent ? currentAgent.id : null);
-        }
-    });
-    chatHeader.appendChild(clearBtn);
+    // Clear Chat Logic
+    const clearBtn = clone.querySelector('#btn-clear-chat');
+    if (clearBtn) {
+        clearBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            if (window.confirm("Are you sure you want to clear this conversation history?")) {
+                chatHistory = [];
+                saveChatHistory(currentAgent ? currentAgent.id : null);
+                loadChatHistory(currentAgent ? currentAgent.id : null);
+            }
+        });
+    }
 
     // Initial Load (Global Inbox by default)
     loadChatHistory(null);

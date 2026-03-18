@@ -214,9 +214,14 @@
               <h3 id="current-chat-agent">Select an agent</h3>
               <span class="model-badge" id="current-chat-model"></span>
             </div>
-            <div class="chat-context-flag" style="display: flex; align-items: center; gap: 6px; font-size: 0.8rem; background: rgba(99, 102, 241, 0.15); color: #818cf8; padding: 4px 10px; border-radius: 12px; border: 1px solid rgba(99, 102, 241, 0.3);">
-              <i class="ph-fill ph-folder"></i>
-              <span id="current-chat-project-flag">Global Context</span>
+            <div style="display: flex; align-items: center; gap: 12px;">
+              <div class="chat-context-flag" style="display: flex; align-items: center; gap: 6px; font-size: 0.8rem; background: rgba(99, 102, 241, 0.15); color: #818cf8; padding: 4px 10px; border-radius: 12px; border: 1px solid rgba(99, 102, 241, 0.3);">
+                <i class="ph-fill ph-folder"></i>
+                <span id="current-chat-project-flag">Global Context</span>
+              </div>
+              <button class="btn btn-secondary btn-sm" id="btn-clear-chat" title="Clear conversation history" style="padding: 4px 10px; font-size: 0.75rem;">
+                <i class="ph ph-trash"></i>
+              </button>
             </div>
           </div>
           
