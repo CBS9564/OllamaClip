@@ -1,4 +1,6 @@
-export function renderTasks(container, agents) {
+const API_URL = 'http://localhost:3001/api';
+
+export function renderTasks(container, agents, activeProjectId) {
   const tpl = document.getElementById('tpl-tasks');
   const clone = tpl.content.cloneNode(true);
   container.innerHTML = '';
@@ -9,37 +11,51 @@ export function renderTasks(container, agents) {
   const openTaskList = clone.querySelector('#open-task-list');
   const completedTaskList = clone.querySelector('#completed-task-list');
   
-  // Helper to save to storage
-  const saveTasksToStorage = (updatedTasks) => {
-      localStorage.setItem('ollamaclip_tasks', JSON.stringify(updatedTasks));
-  };
+  let editingTaskId = null;
+
+  // Populate Select
+  agents.forEach(agent => {
+      const opt = document.createElement('option');
+      opt.value = agent.id;
+      opt.textContent = agent.name;
+      agentSelect.appendChild(opt);
+  });
 
   const getAgentInfo = (agentId) => {
       const ag = agents.find(a => a.id === agentId);
       return ag ? { name: ag.name, color: ag.color } : { name: 'Unassigned', color: 'var(--text-muted)' };
   };
 
-  const renderList = () => {
-      const allTasks = JSON.parse(localStorage.getItem('ollamaclip_tasks') || '[]');
+  const renderList = async () => {
+      let allTasks = [];
+      try {
+          const res = await fetch(`${API_URL}/tasks`);
+          if (res.ok) allTasks = await res.json();
+      } catch(e) { console.error("Could not fetch tasks", e); }
       
-      const openTasks = allTasks.filter(t => !t.completed);
-      const completedTasks = allTasks.filter(t => t.completed);
+      openTaskList.innerHTML = '';
+      completedTaskList.innerHTML = '';
+
+      const filteredTasks = allTasks.filter(t => !activeProjectId || t.projectId === activeProjectId);
+      const openTasks = filteredTasks.filter(t => !t.completed);
+      const completedTasks = filteredTasks.filter(t => t.completed);
 
       if (openTasks.length === 0) {
-          openTaskList.innerHTML = '<li style="color:var(--text-muted); font-size:0.85rem">No open tasks.</li>';
+          openTaskList.innerHTML = '<li class="empty-msg" style="color:var(--text-muted); font-size:0.85rem; padding: 10px;">No open tasks.</li>';
       }
       
       if (completedTasks.length === 0) {
-          completedTaskList.innerHTML = '<li style="color:var(--text-muted); font-size:0.85rem">No completed tasks yet.</li>';
+          completedTaskList.innerHTML = '<li class="empty-msg" style="color:var(--text-muted); font-size:0.85rem; padding: 10px;">No completed tasks yet.</li>';
       }
 
       allTasks.forEach(task => {
           const li = document.createElement('li');
-          li.className = `task-item ${task.editing ? 'editing' : ''}`;
+          const isEditing = task.id === editingTaskId;
+          li.className = `task-item ${isEditing ? 'editing' : ''}`;
           
           const agentInfo = getAgentInfo(task.agentId);
           
-          if (task.editing) {
+          if (isEditing) {
               li.innerHTML = `
                   <div class="task-edit-form" style="display:flex; flex-direction:column; gap:8px; width:100%;">
                       <input type="text" class="edit-task-title" value="${task.title}" style="width:100%;" />
@@ -54,20 +70,23 @@ export function renderTasks(container, agents) {
                   </div>
               `;
               
-              li.querySelector('.btn-save-edit').addEventListener('click', () => {
-                  const currentTasks = JSON.parse(localStorage.getItem('ollamaclip_tasks') || '[]');
-                  const tIdx = currentTasks.findIndex(t => t.id === task.id);
-                  if (tIdx !== -1) {
-                      currentTasks[tIdx].title = li.querySelector('.edit-task-title').value.trim();
-                      currentTasks[tIdx].agentId = li.querySelector('.edit-task-agent').value || null;
-                      currentTasks[tIdx].editing = false;
-                      localStorage.setItem('ollamaclip_tasks', JSON.stringify(currentTasks));
-                  }
+              li.querySelector('.btn-save-edit').addEventListener('click', async () => {
+                  const newTitle = li.querySelector('.edit-task-title').value.trim();
+                  const newAgentId = li.querySelector('.edit-task-agent').value || null;
+                  
+                  await fetch(`${API_URL}/tasks/${task.id}`, {
+                      method: 'PUT',
+                      headers: {'Content-Type': 'application/json'},
+                      body: JSON.stringify({ title: newTitle, agentId: newAgentId })
+                  });
+                  
+                  editingTaskId = null;
                   renderList();
               });
               
               li.querySelector('.btn-cancel-edit').addEventListener('click', () => {
-                  renderList(); // Just re-render, don't save
+                  editingTaskId = null;
+                  renderList();
               });
           } else {
               li.innerHTML = `
@@ -98,7 +117,6 @@ export function renderTasks(container, agents) {
                   </div>
               `;
 
-              // Status Badge
               if (task.status) {
                   const statusDiv = document.createElement('div');
                   statusDiv.className = `status-badge ${task.status}`;
@@ -106,68 +124,54 @@ export function renderTasks(container, agents) {
                   li.querySelector('.task-meta').appendChild(statusDiv);
               }
 
-              // Event Listeners
-              li.querySelector('.task-checkbox').addEventListener('click', () => {
-                  const currentTasks = JSON.parse(localStorage.getItem('ollamaclip_tasks') || '[]');
-                  const tIdx = currentTasks.findIndex(t => t.id === task.id);
-                  if (tIdx !== -1) {
-                      currentTasks[tIdx].completed = !currentTasks[tIdx].completed;
-                      if (currentTasks[tIdx].completed) {
-                          currentTasks[tIdx].heartbeat = false;
-                          currentTasks[tIdx].status = 'completed';
-                      }
-                      localStorage.setItem('ollamaclip_tasks', JSON.stringify(currentTasks));
-                  }
+              li.querySelector('.task-checkbox').addEventListener('click', async () => {
+                  const newCompleted = !task.completed;
+                  await fetch(`${API_URL}/tasks/${task.id}`, {
+                      method: 'PUT',
+                      headers: {'Content-Type': 'application/json'},
+                      body: JSON.stringify({ completed: newCompleted, heartbeat: false, status: newCompleted ? 'completed' : 'open' })
+                  });
                   renderList();
               });
 
-              li.querySelector('.task-delete').addEventListener('click', (e) => {
+              li.querySelector('.task-delete').addEventListener('click', async (e) => {
                   e.stopPropagation();
                   if (confirm("Delete this task?")) {
-                      const currentTasks = JSON.parse(localStorage.getItem('ollamaclip_tasks') || '[]');
-                      const filtered = currentTasks.filter(t => t.id !== task.id);
-                      localStorage.setItem('ollamaclip_tasks', JSON.stringify(filtered));
+                      await fetch(`${API_URL}/tasks/${task.id}`, { method: 'DELETE' });
                       renderList();
                   }
               });
 
               if (!task.completed) {
-                  li.querySelector('.task-control.play').addEventListener('click', () => {
-                      const currentTasks = JSON.parse(localStorage.getItem('ollamaclip_tasks') || '[]');
-                      const tIdx = currentTasks.findIndex(t => t.id === task.id);
-                      if (tIdx !== -1) {
-                          currentTasks[tIdx].heartbeat = true;
-                          currentTasks[tIdx].status = 'processing';
-                          localStorage.setItem('ollamaclip_tasks', JSON.stringify(currentTasks));
-                      }
+                  li.querySelector('.task-control.play').addEventListener('click', async () => {
+                      await fetch(`${API_URL}/tasks/${task.id}`, {
+                          method: 'PUT',
+                          headers: {'Content-Type': 'application/json'},
+                          body: JSON.stringify({ heartbeat: true, status: 'processing' })
+                      });
                       renderList();
                   });
 
-                  li.querySelector('.task-control.pause').addEventListener('click', () => {
-                      const currentTasks = JSON.parse(localStorage.getItem('ollamaclip_tasks') || '[]');
-                      const tIdx = currentTasks.findIndex(t => t.id === task.id);
-                      if (tIdx !== -1) {
-                          currentTasks[tIdx].heartbeat = false;
-                          currentTasks[tIdx].status = 'paused';
-                          localStorage.setItem('ollamaclip_tasks', JSON.stringify(currentTasks));
-                      }
+                  li.querySelector('.task-control.pause').addEventListener('click', async () => {
+                      await fetch(`${API_URL}/tasks/${task.id}`, {
+                          method: 'PUT',
+                          headers: {'Content-Type': 'application/json'},
+                          body: JSON.stringify({ heartbeat: false, status: 'paused' })
+                      });
                       renderList();
                   });
 
-                  li.querySelector('.task-control.stop').addEventListener('click', () => {
-                      const currentTasks = JSON.parse(localStorage.getItem('ollamaclip_tasks') || '[]');
-                      const tIdx = currentTasks.findIndex(t => t.id === task.id);
-                      if (tIdx !== -1) {
-                          currentTasks[tIdx].heartbeat = false;
-                          currentTasks[tIdx].status = '';
-                          localStorage.setItem('ollamaclip_tasks', JSON.stringify(currentTasks));
-                      }
+                  li.querySelector('.task-control.stop').addEventListener('click', async () => {
+                      await fetch(`${API_URL}/tasks/${task.id}`, {
+                          method: 'PUT',
+                          headers: {'Content-Type': 'application/json'},
+                          body: JSON.stringify({ heartbeat: false, status: 'open' })
+                      });
                       renderList();
                   });
 
                   li.querySelector('.task-edit').addEventListener('click', () => {
-                      // We can use a special session-only flag for editing
-                      task.editing = true; 
+                      editingTaskId = task.id;
                       renderList();
                   });
               }
@@ -181,21 +185,24 @@ export function renderTasks(container, agents) {
       });
   };
 
-  const handleAdd = () => {
+  const handleAdd = async () => {
       const title = titleInput.value.trim();
       if (!title) return;
 
-      const currentTasks = JSON.parse(localStorage.getItem('ollamaclip_tasks') || '[]');
       const newTask = {
           id: Date.now().toString(),
           title: title,
           agentId: agentSelect.value || null,
+          projectId: activeProjectId || 'default_project',
           completed: false,
-          createdAt: new Date().toISOString()
+          status: 'open'
       };
 
-      currentTasks.push(newTask);
-      saveTasksToStorage(currentTasks);
+      await fetch(`${API_URL}/tasks`, {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify(newTask)
+      });
       
       titleInput.value = '';
       renderList();
@@ -206,7 +213,6 @@ export function renderTasks(container, agents) {
       if (e.key === 'Enter') handleAdd();
   });
 
-  // Listen for Heartbeat status updates
   if (window._onTasksUpdated) {
       window.removeEventListener('ollamaclip_tasks_updated', window._onTasksUpdated);
   }
@@ -215,7 +221,6 @@ export function renderTasks(container, agents) {
   };
   window.addEventListener('ollamaclip_tasks_updated', window._onTasksUpdated);
 
-  // Initial render
   renderList();
   
   container.appendChild(clone);

@@ -30,6 +30,10 @@
             <i class="ph ph-squares-four"></i>
             <span>Dashboard</span>
           </button>
+          <button class="nav-item" data-target="projects">
+            <i class="ph ph-briefcase"></i>
+            <span>Projects</span>
+          </button>
           <button class="nav-item" data-target="agents">
             <i class="ph ph-users"></i>
             <span>Agents</span>
@@ -61,7 +65,7 @@
         <!-- Top Header -->
         <header class="top-header glass-panel">
           <h1 id="page-title">Dashboard</h1>
-          <div class="header-actions">
+          <div class="header-actions" style="display:flex; align-items:center; gap:16px;">
             <button class="btn btn-primary" id="btn-new-agent">
               <i class="ph ph-plus"></i>
               New Agent
@@ -205,10 +209,14 @@
         </div>
         
         <div class="chat-window glass-panel">
-          <div class="chat-header">
+          <div class="chat-header" style="justify-content: space-between; display: flex; align-items: center;">
             <div class="chat-title">
               <h3 id="current-chat-agent">Select an agent</h3>
               <span class="model-badge" id="current-chat-model"></span>
+            </div>
+            <div class="chat-context-flag" style="display: flex; align-items: center; gap: 6px; font-size: 0.8rem; background: rgba(99, 102, 241, 0.15); color: #818cf8; padding: 4px 10px; border-radius: 12px; border: 1px solid rgba(99, 102, 241, 0.3);">
+              <i class="ph-fill ph-folder"></i>
+              <span id="current-chat-project-flag">Global Context</span>
             </div>
           </div>
           
@@ -318,6 +326,34 @@
             </div>
           </div>
           
+        </div>
+      </div>
+    </template>
+
+    <!-- Projects Template -->
+    <template id="tpl-projects">
+      <div class="view-projects" style="animation: fadeIn 0.4s ease-out forwards; padding: 16px; display: flex; justify-content: center;">
+        <div class="projects-container glass-panel" style="width: 100%; max-width: 900px;">
+          <div class="settings-header">
+            <h2>Manage Projects</h2>
+            <p class="text-muted">Organize your agents and tasks into separate workspaces.</p>
+          </div>
+          
+          <div class="task-input-section" style="margin-bottom: 24px; display: flex; gap: 12px;">
+            <input type="text" id="new-project-title" placeholder="New Project Name..." class="setting-input" style="flex: 1;" />
+            <button class="btn btn-primary" id="btn-create-project">
+              <i class="ph ph-plus"></i> Create
+            </button>
+          </div>
+
+          <div class="task-list-wrapper">
+             <div class="task-list-header">
+                <h3>Your Projects</h3>
+             </div>
+             <ul class="task-list" id="projects-list-container">
+                <!-- Injected via JS -->
+             </ul>
+          </div>
         </div>
       </div>
     </template>

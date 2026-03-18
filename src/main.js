@@ -1,10 +1,11 @@
-import { fetchLocalModels } from './api/ollama.js';
+import { fetchLocalModels, setOllamaConfig } from './api/ollama.js';
 import { renderDashboard } from './ui/dashboard.js';
 import { renderChat } from './ui/chat.js';
 import { renderTasks } from './ui/tasks.js';
 import { renderSettings } from './ui/settings.js';
 import { renderModelsManager } from './ui/models.js';
 import { renderAgents } from './ui/agents.js';
+import { renderProjects } from './ui/projects.js';
 import { HeartbeatManager } from './api/heartbeat.js';
 
 // Application State
@@ -12,6 +13,11 @@ const appState = {
   activeView: 'dashboard',
   agents: [],
   localModels: [],
+  workspaces: [],
+  projects: [],
+  activeWorkspaceId: null,
+  activeProjectId: null,
+  activeProjectName: "Global Context",
   isOllamaOnline: false,
   editingAgentId: null,
   backendUrl: 'http://localhost:3001/api',
@@ -30,6 +36,22 @@ const btnNewAgent = document.getElementById('btn-new-agent');
 
 // Initialize App
 async function init() {
+  // 0. Fetch Settings
+  try {
+      const sRes = await fetch(`${appState.backendUrl}/settings`);
+      if(sRes.ok) {
+          appState.settings = await sRes.json();
+          setOllamaConfig(appState.settings.ollamaclip_api_url, appState.settings.ollamaclip_keep_alive);
+          appState.apiUrl = appState.settings.ollamaclip_api_url || 'http://localhost:11434/api';
+          appState.keepAlive = appState.settings.ollamaclip_keep_alive || '5m';
+      } else {
+          appState.settings = {};
+      }
+  } catch(e) { 
+      console.error("Could not load settings", e); 
+      appState.settings = {};
+  }
+
   // 1. Check Ollama Status & Get Models
   try {
     const models = await fetchLocalModels();
@@ -46,11 +68,28 @@ async function init() {
     statusIndicator.querySelector('span:last-child').textContent = 'Ollama Offline';
   }
 
-  // 2. Sync with Filesystem (Source of Truth)
+  // 2. Fetch Workspaces & Projects
+  try {
+     const wRes = await fetch(`${appState.backendUrl}/workspaces`);
+     if(wRes.ok) appState.workspaces = await wRes.json();
+     
+     const pRes = await fetch(`${appState.backendUrl}/projects`);
+     if(pRes.ok) appState.projects = await pRes.json();
+     
+     if(appState.workspaces.length > 0) {
+         appState.activeWorkspaceId = appState.workspaces[0].id;
+         if(appState.projects.length > 0) {
+             appState.activeProjectId = appState.projects[0].id;
+             appState.activeProjectName = appState.projects[0].name;
+         }
+     }
+  } catch(e) { console.error("Could not load workspaces/projects", e); }
+  
+  // 3. Sync with Filesystem (Source of Truth)
   await syncAgentsWithFileSystem();
 
-  // 3. Initialize Heartbeat (Autonomous Mode)
-  appState.heartbeat = new HeartbeatManager(() => appState.agents, (agent, message) => {
+  // 4. Initialize Heartbeat (Autonomous Mode)
+  appState.heartbeat = new HeartbeatManager(() => appState.agents.filter(a => a.projectId === appState.activeProjectId || !appState.activeProjectId), (agent, message) => {
       // PROACTIVE CALLBACK: Runs for every heartbeat reply
       // We don't save here anymore, we let the HeartbeatManager or specific events handle it 
       // OR we save it to the correct per-agent key
@@ -125,12 +164,14 @@ async function init() {
     });
   });
 
-  // 4. Bind New Agent Button
+  // Bind New Agent Button
   btnNewAgent.addEventListener('click', () => openAgentWizard());
 
-  // 5. Initial Render
+  // Initial Render
   updateView();
 }
+
+// Removed Workspace & Project Dropdown Logic from Header since we use dedicated page
 
 // Router/View Manager
 function updateView() {
@@ -143,25 +184,33 @@ function updateView() {
       btnNewAgent.style.display = 'none';
   }
 
+  const projectAgents = appState.agents.filter(a => !appState.activeProjectId || a.projectId === appState.activeProjectId);
+
   switch(appState.activeView) {
     case 'dashboard':
-      renderDashboard(contentContainer, appState.agents, appState.localModels, appState, updateView);
+      renderDashboard(contentContainer, projectAgents, appState.localModels, appState, updateView);
+      break;
+    case 'projects':
+      pageTitle.textContent = 'Projects';
+      renderProjects(contentContainer, appState, () => {
+          updateView();
+      });
       break;
     case 'chat':
       pageTitle.textContent = 'Inbox';
-      renderChat(contentContainer, appState.agents);
+      renderChat(contentContainer, projectAgents, appState);
       break;
     case 'agents':
       renderAgents(
           contentContainer, 
-          appState.agents, 
+          projectAgents, 
           (id) => openAgentWizard(id), // Edit callback
           (id) => deleteAgent(id)      // Delete callback
       );
       break;
     case 'tasks':
       pageTitle.textContent = 'Workflow Tasks';
-      renderTasks(contentContainer, appState.agents);
+      renderTasks(contentContainer, projectAgents, appState.activeProjectId);
       break;
     case 'models':
       pageTitle.textContent = 'Model Library';
@@ -314,6 +363,7 @@ if(btnSaveAgent) {
             model,
             systemPrompt,
             color,
+            projectId: appState.activeProjectId,
             options: {
                 temperature: temperature,
                 num_ctx: numCtx

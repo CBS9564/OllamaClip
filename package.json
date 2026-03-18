@@ -10,7 +10,8 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "phosphor-icons": "^1.4.2"
+    "phosphor-icons": "^1.4.2",
+    "sqlite3": "^6.0.1"
   },
   "devDependencies": {
     "body-parser": "^2.2.2",

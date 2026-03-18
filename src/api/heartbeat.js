@@ -1,5 +1,7 @@
 import { chatWithModel } from './ollama.js';
 
+const API_URL = 'http://localhost:3001/api';
+
 /**
  * HeartbeatManager
  * Handles autonomous agent task progression and proactive questioning.
@@ -27,8 +29,16 @@ export class HeartbeatManager {
     async tick() {
         if (this.isProcessing) return;
         
-        // Load tasks from localStorage
-        const tasks = JSON.parse(localStorage.getItem('ollamaclip_tasks') || '[]');
+        // Load tasks from API
+        let tasks = [];
+        try {
+            const res = await fetch(`${API_URL}/tasks`);
+            if (res.ok) tasks = await res.json();
+        } catch(e) {
+            console.error("Heartbeat: could not load tasks", e);
+            this.isProcessing = false;
+            return;
+        }
         const activeTasks = tasks.filter(t => !t.completed && t.heartbeat && t.status !== 'needs_input');
 
         if (activeTasks.length === 0) return;
@@ -58,7 +68,10 @@ export class HeartbeatManager {
         const systemPrompt = `${agent.systemPrompt}
         
        CRITICAL: You are currently working autonomously on the following task: "${task.title}".
+       Workspace: ${task.workspaceName} | Project: ${task.projectName}
+       
        Your goal is to progress this task. 
+       - If you need to create or update a document in the project folder, use this syntax: [SAVE:filename.ext] Content of the file [/SAVE].
        - If you have enough info, perform the next step and report progress.
        - If you are stuck or need clarification/missing info from the user, ASK A QUESTION directly and start your message with [QUESTION].
        - If the task is TOTALLY FINISHED, end your message with [DONE] to close the task.
@@ -91,16 +104,42 @@ export class HeartbeatManager {
                     this.updateTaskStatus(task.id, 'processing');
                 }
 
+                // --- Parse and Sync Files ---
+                const saveRegex = /\[SAVE:([^\]]+)\]([\s\S]*?)\[\/SAVE\]/img;
+                let match;
+                let cleanedReply = fullReply;
+
+                while ((match = saveRegex.exec(fullReply)) !== null) {
+                    const filename = match[1].trim();
+                    const content = match[2].trim();
+                    
+                    console.log(`[Heartbeat] Agent ${agent.name} saving file: ${filename}`);
+                    
+                    fetch(`${API_URL}/workspace/file`, {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({
+                            filename,
+                            content,
+                            workspaceName: task.workspaceName,
+                            projectName: task.projectName
+                        })
+                    }).catch(e => console.error("Failed to save agent file", e));
+                    
+                    // Optional: remove tag from UI display
+                    cleanedReply = cleanedReply.replace(match[0], `*(Saved file: ${filename})*`);
+                }
+
                 // Notify UI to display the proactive thought/action
                 if (this.onProactiveMessage) {
-                    this.onProactiveMessage(agent, fullReply);
+                    this.onProactiveMessage(agent, cleanedReply);
                 }
 
                 // Global event for chat UI to catch and flag with task
                 window.dispatchEvent(new CustomEvent('ollamaclip_new_message', {
                     detail: { 
                         agent: agent, 
-                        message: fullReply,
+                        message: cleanedReply,
                         taskId: task.id,
                         taskTitle: task.title
                     }
@@ -109,25 +148,25 @@ export class HeartbeatManager {
         );
     }
 
-    updateTaskStatus(taskId, status) {
-        const tasks = JSON.parse(localStorage.getItem('ollamaclip_tasks') || '[]');
-        const idx = tasks.findIndex(t => t.id === taskId);
-        if (idx !== -1) {
-            tasks[idx].status = status;
-            localStorage.setItem('ollamaclip_tasks', JSON.stringify(tasks));
+    async updateTaskStatus(taskId, status) {
+        try {
+            await fetch(`${API_URL}/tasks/${taskId}`, {
+                method: 'PUT',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ status })
+            });
             window.dispatchEvent(new CustomEvent('ollamaclip_tasks_updated'));
-        }
+        } catch(e) { console.error("Heartbeat: API error updating status", e); }
     }
 
-    updateTaskCompletion(taskId) {
-        const tasks = JSON.parse(localStorage.getItem('ollamaclip_tasks') || '[]');
-        const idx = tasks.findIndex(t => t.id === taskId);
-        if (idx !== -1) {
-            tasks[idx].completed = true;
-            tasks[idx].heartbeat = false;
-            tasks[idx].status = 'completed';
-            localStorage.setItem('ollamaclip_tasks', JSON.stringify(tasks));
+    async updateTaskCompletion(taskId) {
+        try {
+            await fetch(`${API_URL}/tasks/${taskId}`, {
+                method: 'PUT',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ completed: true, heartbeat: false, status: 'completed' })
+            });
             window.dispatchEvent(new CustomEvent('ollamaclip_tasks_updated'));
-        }
+        } catch(e) { console.error("Heartbeat: API error updating completion", e); }
     }
 }

@@ -1,3 +1,5 @@
+import { setOllamaConfig } from '../api/ollama.js';
+
 export function renderSettings(container, appState) {
     const tpl = document.getElementById('tpl-settings');
     const clone = tpl.content.cloneNode(true);
@@ -13,26 +15,49 @@ export function renderSettings(container, appState) {
     const btnClearTasks = clone.querySelector('#btn-clear-tasks');
     const btnDeleteAgents = clone.querySelector('#btn-delete-agents');
 
-    // Initialize values from local storage or defaults
-    inputApiUrl.value = localStorage.getItem('ollamaclip_api_url') || 'http://localhost:11434/api';
-    selectKeepAlive.value = localStorage.getItem('ollamaclip_keep_alive') || '5m';
+    // Initialize values from global state (DB-backed) or defaults
+    inputApiUrl.value = appState.settings?.ollamaclip_api_url || 'http://localhost:11434/api';
+    selectKeepAlive.value = appState.settings?.ollamaclip_keep_alive || '5m';
 
     // Save Configuration
-    btnSave.addEventListener('click', () => {
+    btnSave.addEventListener('click', async () => {
         const newUrl = inputApiUrl.value.trim();
         const newKeepAlive = selectKeepAlive.value;
+        const payload = {};
+        
+        if (newUrl) payload.ollamaclip_api_url = newUrl;
+        if (newKeepAlive) payload.ollamaclip_keep_alive = newKeepAlive;
 
-        if (newUrl) {
-            localStorage.setItem('ollamaclip_api_url', newUrl);
-            appState.apiUrl = newUrl; // Update global state
+        btnSave.disabled = true;
+        btnSave.innerHTML = '<i class="ph ph-spinner ph-spin"></i> Saving...';
+
+        try {
+            const res = await fetch(`${appState.backendUrl}/settings`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+            
+            if (res.ok) {
+                appState.settings = { ...appState.settings, ...payload };
+                appState.apiUrl = appState.settings.ollamaclip_api_url;
+                appState.keepAlive = appState.settings.ollamaclip_keep_alive;
+                setOllamaConfig(appState.apiUrl, appState.keepAlive);
+                
+                // Show feedback
+                feedback.style.color = "var(--text-primary)";
+                feedback.textContent = "Saved securely to database!";
+                feedback.style.opacity = '1';
+                setTimeout(() => feedback.style.opacity = '0', 2000);
+            } else {
+                alert("Failed to save settings.");
+            }
+        } catch(e) {
+            alert("Error communicating with settings API");
+        } finally {
+            btnSave.disabled = false;
+            btnSave.innerHTML = '<i class="ph ph-floppy-disk"></i> Save Configuration';
         }
-        
-        localStorage.setItem('ollamaclip_keep_alive', newKeepAlive);
-        appState.keepAlive = newKeepAlive; // Update global state
-        
-        // Show feedback
-        feedback.style.opacity = '1';
-        setTimeout(() => feedback.style.opacity = '0', 2000);
     });
 
     // Data Management Actions

@@ -1,6 +1,6 @@
 import { chatWithModel } from '../api/ollama.js';
 
-export function renderChat(container, agents) {
+export function renderChat(container, agents, appState) {
     const tpl = document.getElementById('tpl-chat');
     const clone = tpl.content.cloneNode(true);
     container.innerHTML = '';
@@ -11,6 +11,11 @@ export function renderChat(container, agents) {
     const messagesContainer = clone.querySelector('#chat-messages');
     const currentAgentName = clone.querySelector('#current-chat-agent');
     const currentAgentModel = clone.querySelector('#current-chat-model');
+    const currentProjectFlag = clone.querySelector('#current-chat-project-flag');
+    
+    if (currentProjectFlag && appState) {
+        currentProjectFlag.textContent = appState.activeProjectName || 'Global Context';
+    }
     
     let currentAgent = null;
     let chatHistory = [];
@@ -236,8 +241,13 @@ export function renderChat(container, agents) {
 
         // Add System prompt to contextualize the agent if it's their first time speaking in this thread
         // Or inject it dynamically before sending to API (so we don't pollute the visual UI with system prompts)
+        const wsName = appState?.workspaces?.find(w => w.id === appState.activeWorkspaceId)?.name || 'Global Workspace';
+        const pName = appState?.activeProjectName || 'Global Project';
+        const baseSystemPrompt = respondingAgent.systemPrompt || "You are a helpful AI assistant.";
+        const contextualSystemPrompt = `${baseSystemPrompt}\n\n[CONTEXT FLAG]\nYou are currently working in Workspace: "${wsName}" | Project: "${pName}".\nIf you need to create or edit a file in this project's folder, use the EXACT syntax: [SAVE:filename.ext] Content [/SAVE].`;
+        
         const apiPayloadHistory = [
-            { role: 'system', content: respondingAgent.systemPrompt || "You are a helpful AI assistant." },
+            { role: 'system', content: contextualSystemPrompt },
             // Filter out internal metadata from our saved structure before sending to Ollama
             ...chatHistory.map(h => ({ role: h.role, content: h.content }))
         ];

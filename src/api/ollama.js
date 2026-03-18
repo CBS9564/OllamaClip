@@ -2,8 +2,16 @@
  * Ollama API Connection Services
  * Default port: http://localhost:11434
  */
-const getBaseUrl = () => localStorage.getItem('ollamaclip_api_url') || 'http://localhost:11434/api';
-const getKeepAlive = () => localStorage.getItem('ollamaclip_keep_alive') || '5m';
+let ollamaApiUrl = 'http://localhost:11434/api';
+let ollamaKeepAlive = '5m';
+
+export function setOllamaConfig(url, keepAlive) {
+    if (url) ollamaApiUrl = url;
+    if (keepAlive) ollamaKeepAlive = keepAlive;
+}
+
+const getBaseUrl = () => ollamaApiUrl;
+const getKeepAlive = () => ollamaKeepAlive;
 
 /**
  * Fetch available models from local Ollama instance
