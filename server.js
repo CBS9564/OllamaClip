@@ -1,5 +1,5 @@
 import express from 'express';
-import { getProjectPath, dbQuery, dbRun, dbGet, ensureProjectDir } from './backend_db.js';
+import { getProjectPath, dbQuery, dbRun, dbGet, ensureProjectDir, ensureAgentDir, getProjectAgentsPath } from './backend_db.js';
 import cors from 'cors';
 import bodyParser from 'body-parser';
 import fs from 'fs/promises';
@@ -16,13 +16,21 @@ const AGENTS_DIR = path.join(__dirname, 'Agent');
 app.use(cors());
 app.use(bodyParser.json());
 
-// Helper to ensure Agent directory exists
-async function ensureDir() {
-    try {
-        await fs.access(AGENTS_DIR);
-    } catch {
-        await fs.mkdir(AGENTS_DIR);
+// Helper to resolve an agent's path based on their project
+async function resolveAgentPath(agentId, filename) {
+    // 1. Try to find in DB
+    const meta = await dbGet(`
+        SELECT p.name as project_name
+        FROM agents_meta a
+        JOIN projects p ON a.project_id = p.id
+        WHERE a.id = ?`, [agentId]);
+
+    if (meta) {
+        return path.join(getProjectAgentsPath(meta.project_name), filename);
     }
+    
+    // 2. Fallback to global Agent/ if not found or DB missing
+    return path.join(AGENTS_DIR, filename);
 }
 
 // Convert Agent JSON to Markdown
@@ -88,31 +96,33 @@ function markdownToJson(content, filename) {
 // Routes
 app.post('/api/save-agent', async (req, res) => {
     try {
-        await ensureDir();
         const agent = req.body;
-        
         if (!agent || !agent.name || !agent.role) {
-            console.error("[Persistence] Error: Missing agent data in request body", req.body);
             return res.status(400).json({ error: "Missing agent name or role" });
         }
 
-        // Filename: agent_Name_Role.md (sanitize names)
+        const projectId = agent.projectId || 'default_project';
+        
+        // Resolve Project name for path creation
+        const proj = await dbGet(`SELECT name as project_name FROM projects WHERE id = ?`, [projectId]);
+        if (!proj) return res.status(404).json({ error: "Project not found" });
+
+        const agentDir = ensureAgentDir(proj.project_name);
         const safeName = agent.name.replace(/[^a-z0-9]/gi, '_');
         const safeRole = agent.role.replace(/[^a-z0-9]/gi, '_');
         const filename = `agent_${safeName}_${safeRole}.md`;
         
         const mdContent = jsonToMarkdown(agent);
-        await fs.writeFile(path.join(AGENTS_DIR, filename), mdContent, 'utf-8');
+        await fs.writeFile(path.join(agentDir, filename), mdContent, 'utf-8');
         
         // Sync with SQLite
-        const projectId = agent.projectId || 'default_project';
         await dbRun(
             `INSERT INTO agents_meta (id, project_id, filename) VALUES (?, ?, ?) 
              ON CONFLICT(id) DO UPDATE SET project_id = excluded.project_id, filename = excluded.filename`,
             [agent.id, projectId, filename]
         );
 
-        console.log(`[Persistence] Saved agent: ${filename}`);
+        console.log(`[Persistence] Saved agent to ${proj.project_name}/Agents/: ${filename}`);
         res.json({ success: true, filename });
     } catch (error) {
         console.error("[Persistence] Save error:", error);
@@ -122,27 +132,16 @@ app.post('/api/save-agent', async (req, res) => {
 
 app.post('/api/delete-agent', async (req, res) => {
     try {
-        const { name, role, filename: providedFilename } = req.body;
-        let filename = providedFilename;
+        const { id, filename } = req.body;
+        if (!id || !filename) return res.status(400).json({ error: "Missing agent ID or filename" });
 
-        if (!filename && name && role) {
-            const safeName = name.replace(/[^a-z0-9]/gi, '_');
-            const safeRole = role.replace(/[^a-z0-9]/gi, '_');
-            filename = `agent_${safeName}_${safeRole}.md`;
-        }
-
-        if (!filename) {
-            return res.status(400).json({ error: "Missing filename or name/role" });
-        }
+        const filePath = await resolveAgentPath(id, filename);
+        try { await fs.unlink(filePath); } catch (e) { /* ignore */ }
         
-        const filePath = path.join(AGENTS_DIR, filename);
-        try { await fs.unlink(filePath); } catch (e) { /* ignore if already gone */ }
-        
-        // Sync with SQLite
-        await dbRun(`DELETE FROM tasks WHERE agent_id = (SELECT id FROM agents_meta WHERE filename = ?)`, [filename]);
-        await dbRun(`DELETE FROM agents_meta WHERE filename = ?`, [filename]);
+        await dbRun(`DELETE FROM tasks WHERE agent_id = ?`, [id]);
+        await dbRun(`DELETE FROM agents_meta WHERE id = ?`, [id]);
 
-        console.log(`[Persistence] Deleted agent file & records: ${filename}`);
+        console.log(`[Persistence] Deleted agent: ${filename}`);
         res.json({ success: true });
     } catch (error) {
         console.error("[Persistence] Delete error:", error);
@@ -152,19 +151,44 @@ app.post('/api/delete-agent', async (req, res) => {
 
 app.get('/api/load-agents', async (req, res) => {
     try {
-        await ensureDir();
-        const files = await fs.readdir(AGENTS_DIR);
         const agents = [];
-        
-        for (const file of files) {
-            if (file.endsWith('.md')) {
-                const content = await fs.readFile(path.join(AGENTS_DIR, file), 'utf-8');
-                const agent = markdownToJson(content, file);
-                agent.filename = file; // Store filename in agent object
+        const seenIds = new Set();
+
+        // 1. Load agents registered in database across all projects
+        const dbAgents = await dbQuery(`
+            SELECT a.*, p.name as project_name
+            FROM agents_meta a
+            JOIN projects p ON a.project_id = p.id
+        `);
+
+        for (const entry of dbAgents) {
+            const agentPath = path.join(getProjectAgentsPath(entry.project_name), entry.filename);
+            try {
+                const content = await fs.readFile(agentPath, 'utf-8');
+                const agent = markdownToJson(content, entry.filename);
+                agent.projectId = entry.project_id;
                 agents.push(agent);
-            }
+                seenIds.add(agent.id);
+            } catch (e) { console.warn(`[Persistence] Agent file missing at ${agentPath}`); }
         }
-        
+
+        // 2. Legacy Fallback: Scan global Agent/ directory
+        try {
+            const legacyFiles = await fs.readdir(AGENTS_DIR);
+            for (const file of legacyFiles) {
+                if (file.endsWith('.md')) {
+                    const content = await fs.readFile(path.join(AGENTS_DIR, file), 'utf-8');
+                    const agent = markdownToJson(content, file);
+                    if (!seenIds.has(agent.id)) {
+                        agent.projectId = 'default_project';
+                        agents.push(agent);
+                        // Auto-register legacy agents in DB
+                        await dbRun(`INSERT OR IGNORE INTO agents_meta (id, project_id, filename) VALUES (?, ?, ?)`, [agent.id, 'default_project', file]);
+                    }
+                }
+            }
+        } catch (e) { /* ignore if legacy dir doesn't exist */ }
+
         res.json(agents);
     } catch (error) {
         console.error("[Persistence] Load error:", error);
@@ -200,8 +224,8 @@ app.post('/api/projects', async (req, res) => {
         const id = 'project_' + Date.now().toString(36) + Math.random().toString(36).substr(2, 5);
         await dbRun("INSERT INTO projects (id, workspace_id, name) VALUES (?, 'default_workspace', ?)", [id, name]);
         
-        ensureProjectDir('My Global Workspace', name);
-        res.json({ id, name, workspace_id: 'default_workspace', success: true });
+        ensureProjectDir(name);
+        res.json({ id, name, success: true });
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
@@ -214,10 +238,27 @@ app.delete('/api/projects/:id', async (req, res) => {
             return res.status(400).json({ error: "Cannot delete the default project." });
         }
         
-        // Let SQLite handle CASCADE or just orphans, but for UI sake we delete the project marker.
+        // 1. Get project info first
+        const proj = await dbGet("SELECT name FROM projects WHERE id = ?", [id]);
+        if (!proj) return res.status(404).json({ error: "Project not found" });
+
+        // 2. Cascade DB deletions
+        await dbRun("DELETE FROM tasks WHERE project_id = ?", [id]);
+        await dbRun("DELETE FROM agents_meta WHERE project_id = ?", [id]);
         await dbRun("DELETE FROM projects WHERE id = ?", [id]);
+
+        // 3. Physical deletion of the project folder
+        const projectPath = getProjectPath(proj.name);
+        try {
+            await fs.rm(projectPath, { recursive: true, force: true });
+            console.log(`[Persistence] Recursively deleted project folder: ${projectPath}`);
+        } catch (e) {
+            console.error(`[Persistence] Error deleting folder ${projectPath}:`, e);
+        }
+
         res.json({ success: true });
     } catch (error) {
+        console.error("[Persistence] Project deletion error:", error);
         res.status(500).json({ error: error.message });
     }
 });
@@ -328,19 +369,25 @@ app.delete('/api/tasks/:id', async (req, res) => {
 
 app.post('/api/workspace/file', async (req, res) => {
     try {
-        const { filename, content, workspaceName, projectName } = req.body;
-        if (!filename || !workspaceName || !projectName) {
-            return res.status(400).json({ error: "Missing filename, workspaceName or projectName" });
+        const { filename, content, projectName } = req.body;
+        if (!filename || !projectName) {
+            return res.status(400).json({ error: "Missing filename or projectName" });
         }
 
-        const projectPath = getProjectPath(workspaceName, projectName);
-        // Security: prevent path traversal
-        const safeFilename = path.basename(filename);
-        const filePath = path.join(projectPath, safeFilename);
+        const projectPath = getProjectPath(projectName);
+        
+        // Security: prevent path traversal while allowing subfolders inside project
+        const fullPath = path.normalize(path.join(projectPath, filename));
+        if (!fullPath.startsWith(path.resolve(projectPath))) {
+            return res.status(403).json({ error: "Access denied: Path is outside project boundary." });
+        }
 
-        await fs.writeFile(filePath, content || '', 'utf-8');
-        console.log(`[Workspace] Agent saved file: ${filePath}`);
-        res.json({ success: true, path: filePath });
+        // Ensure subdirectories exist
+        await fs.mkdir(path.dirname(fullPath), { recursive: true });
+
+        await fs.writeFile(fullPath, content || '', 'utf-8');
+        console.log(`[Workspace] Agent saved file in project: ${fullPath}`);
+        res.json({ success: true, path: fullPath });
     } catch (error) {
         console.error("[Workspace] File save error:", error);
         res.status(500).json({ error: error.message });

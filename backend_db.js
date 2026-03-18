@@ -83,26 +83,64 @@ function ensureWorkspaceDir(name) {
 }
 
 function ensureDefaultProject() {
-    db.get("SELECT p.id, p.name, w.name as workspace_name FROM projects p JOIN workspaces w ON p.workspace_id = w.id WHERE p.id = 'default_project'", (err, row) => {
+    db.get("SELECT p.id, p.name FROM projects p WHERE p.id = 'default_project'", (err, row) => {
         if (!row && !err) {
             db.run("INSERT INTO projects (id, workspace_id, name) VALUES ('default_project', 'default_workspace', 'Main Project')");
-            ensureProjectDir('My Global Workspace', 'Main Project');
+            ensureProjectDir('Main Project');
         } else if (row) {
-            ensureProjectDir(row.workspace_name, row.name);
+            ensureProjectDir(row.name);
         }
     });
+
+    // --- MIGRATION: Flatten "My Global Workspace" ---
+    const legacyWS = path.join(__dirname, 'Workspaces', 'My Global Workspace');
+    const rootWS = path.join(__dirname, 'Workspaces');
+    if (fs.existsSync(legacyWS)) {
+        console.log("[Migration] Found legacy 'My Global Workspace'. Flattening...");
+        try {
+            const items = fs.readdirSync(legacyWS);
+            for (const item of items) {
+                const oldPath = path.join(legacyWS, item);
+                const newPath = path.join(rootWS, item);
+                if (!fs.existsSync(newPath)) {
+                    fs.renameSync(oldPath, newPath);
+                    console.log(`[Migration] Moved ${item} to root Workspaces/`);
+                }
+            }
+            // Cleanup empty legacy folder
+            if (fs.readdirSync(legacyWS).length === 0) {
+                fs.rmdirSync(legacyWS);
+            }
+        } catch (e) {
+            console.error("[Migration] Error flattening workspace layer:", e);
+        }
+    }
 }
 
-export function ensureProjectDir(workspaceName, projectName) {
-    const dir = path.join(__dirname, 'Workspaces', workspaceName, projectName);
+export function ensureProjectDir(projectName) {
+    const dir = path.join(__dirname, 'Workspaces', projectName);
     if (!fs.existsSync(dir)) {
         fs.mkdirSync(dir, { recursive: true });
         console.log(`[Database] Created Project directory: ${dir}`);
     }
 }
 
-export function getProjectPath(workspaceName, projectName) {
-    return path.join(__dirname, 'Workspaces', workspaceName, projectName);
+export function getProjectPath(projectName) {
+    return path.join(__dirname, 'Workspaces', projectName);
+}
+
+export function ensureAgentDir(projectName) {
+    const projectDir = getProjectPath(projectName);
+    const agentDir = path.join(projectDir, 'Agent');
+    if (!fs.existsSync(agentDir)) {
+        fs.mkdirSync(agentDir, { recursive: true });
+        console.log(`[Database] Created Agent directory: ${agentDir}`);
+    }
+    return agentDir;
+}
+
+export function getProjectAgentsPath(projectName) {
+    return path.join(__dirname, 'Workspaces', projectName, 'Agent');
 }
 
 // Wrapper for promises

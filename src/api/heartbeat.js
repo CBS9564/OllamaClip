@@ -68,13 +68,16 @@ export class HeartbeatManager {
         const systemPrompt = `${agent.systemPrompt}
         
        CRITICAL: You are currently working autonomously on the following task: "${task.title}".
-       Workspace: ${task.workspaceName} | Project: ${task.projectName}
+       Project: ${task.projectName}
        
-       Your goal is to progress this task. 
-       - If you need to create or update a document in the project folder, use this syntax: [SAVE:filename.ext] Content of the file [/SAVE].
-       - If you have enough info, perform the next step and report progress.
-       - If you are stuck or need clarification/missing info from the user, ASK A QUESTION directly and start your message with [QUESTION].
-       - If the task is TOTALLY FINISHED, end your message with [DONE] to close the task.
+       Your goal is to progress this task. You have direct control over your task lifecycle using these COMMAND TAGS:
+       - [TASK_STATUS:Message describing current step] : Update your status text in the UI.
+       - [TASK_COMPLETE] : Mark this task as finished and stop working.
+       - [TASK_PAUSE] : Temporarily stop autonomous work on this task.
+       - [TASK_TRANSFER:AgentName] : Hand over this task to another expert agent.
+       
+       - If you need to create or update a document in the project folder, use: [SAVE:filename.ext] Content [/SAVE].
+       - If you are stuck or need user input, start your message with [QUESTION].
        - Keep your response concise.`;
 
         const messages = [
@@ -98,10 +101,11 @@ export class HeartbeatManager {
                 // Check if agent is asking a question or is done
                 if (fullReply.includes('[DONE]')) {
                     this.updateTaskCompletion(task.id);
-                } else if (fullReply.includes('[QUESTION]')) {
-                    this.updateTaskStatus(task.id, 'needs_input');
+                }
+                if (fullReply.includes('WAITING') || fullReply.includes('QUESTION')) {
+                    this.updateTask(task.id, { status: 'needs_input' });
                 } else {
-                    this.updateTaskStatus(task.id, 'processing');
+                    this.updateTask(task.id, { status: 'processing' });
                 }
 
                 // --- Parse and Sync Files ---
@@ -121,13 +125,51 @@ export class HeartbeatManager {
                         body: JSON.stringify({
                             filename,
                             content,
-                            workspaceName: task.workspaceName,
                             projectName: task.projectName
                         })
                     }).catch(e => console.error("Failed to save agent file", e));
                     
                     // Optional: remove tag from UI display
                     cleanedReply = cleanedReply.replace(match[0], `*(Saved file: ${filename})*`);
+                }
+
+                // 2. Task Control Tags
+                const statusRegex = /\[TASK_STATUS:(.*?)\]/g;
+                const completeRegex = /\[TASK_COMPLETE\]/g;
+                const pauseRegex = /\[TASK_PAUSE\]/g;
+                const transferRegex = /\[TASK_TRANSFER:(.*?)\]/g;
+
+                // Handle TASK_STATUS
+                while ((match = statusRegex.exec(fullReply)) !== null) {
+                    const newStatus = match[1].trim();
+                    this.updateTask(task.id, { status: newStatus });
+                    cleanedReply = cleanedReply.replace(match[0], `*(Updated status: ${newStatus})*`);
+                }
+
+                // Handle TASK_COMPLETE
+                while ((match = completeRegex.exec(fullReply)) !== null) {
+                    this.updateTask(task.id, { completed: 1, heartbeat: 0 });
+                    cleanedReply = cleanedReply.replace(match[0], `*(Task Completed)*`);
+                }
+
+                // Handle TASK_PAUSE
+                while ((match = pauseRegex.exec(fullReply)) !== null) {
+                    this.updateTask(task.id, { heartbeat: 0 });
+                    cleanedReply = cleanedReply.replace(match[0], `*(Task Paused)*`);
+                }
+
+                // Handle TASK_TRANSFER
+                while ((match = transferRegex.exec(fullReply)) !== null) {
+                    const targetAgentName = match[1].trim();
+                    const agentsList = this.getAgents();
+                    const targetAgent = agentsList.find(a => a.name.toLowerCase() === targetAgentName.toLowerCase());
+                    
+                    if (targetAgent) {
+                        this.updateTask(task.id, { agentId: targetAgent.id });
+                        cleanedReply = cleanedReply.replace(match[0], `*(Transferred task to: ${targetAgent.name})*`);
+                    } else {
+                        cleanedReply = cleanedReply.replace(match[0], `*(Attempted transfer to ${targetAgentName} - Agent not found)*`);
+                    }
                 }
 
                 // Notify UI to display the proactive thought/action
@@ -148,15 +190,15 @@ export class HeartbeatManager {
         );
     }
 
-    async updateTaskStatus(taskId, status) {
+    async updateTask(taskId, updates) {
         try {
             await fetch(`${API_URL}/tasks/${taskId}`, {
                 method: 'PUT',
                 headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({ status })
+                body: JSON.stringify(updates)
             });
             window.dispatchEvent(new CustomEvent('ollamaclip_tasks_updated'));
-        } catch(e) { console.error("Heartbeat: API error updating status", e); }
+        } catch(e) { console.error("Heartbeat: API error updating task", e); }
     }
 
     async updateTaskCompletion(taskId) {
