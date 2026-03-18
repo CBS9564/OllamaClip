@@ -42,8 +42,7 @@ async function runTests() {
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify({
                 filename: "script_test.txt",
-                content: "This is a verification file created by the test script.",
-                workspaceName: "My Global Workspace",
+                content: "This is a verification file created by the updated test script.",
                 projectName: "Main Project"
             })
         });

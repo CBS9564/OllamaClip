@@ -13,14 +13,14 @@ OllamaClip is a high-performance, lightweight web-based orchestration platform f
 - **Task Management System**: A dedicated UI to create tasks, assign them to specific agents in your workforce, and track their completion status.
 - **Agent Collaboration & Global Inbox (V11):** Per-agent isolated chat histories and a shared workspace with `@mention` auto-triggering.
 - **Enhanced Inbox (V12):** Task flagging in messages, global unread counters in sidebar, and chat history management.
-- **Robust Relational Database (V13):** Replaced `localStorage` task tracking with a robust backend `sqlite3` database hierarchy (`Workspace` -> `Project` -> `Agent` -> `Task`) while maintaining the file-based persistence for core agent prompts.
+- **Project-Centric Architecture (V14):** A professional, flattened hierarchy (`Project` -> `Agent` -> `Task`) backed by `sqlite3`. The legacy workspace layer has been eradicated for maximum efficiency and clarity.
 - **Interactive Dashboard & Model Manager (V5)**: Track active agents and manage local models. **Delete** models to free up space or **Pull** new ones directly from the Ollama Hub with real-time download progress.
 - **Advanced Agent Management (V6/V7)**: 
     - Full **Visual Agent Builder** Modal.
     - Advanced parameters: Tuning of **Temperature** and **Context Size** per agent.
     - **Robust Deletion**: Custom inline confirmation UI for safer agent removal.
-- **V7: File-Based Persistence (Markdown)**: 
-    - Every agent is mirrored as a physical `.md` file in the `Agent/` directory.
+- **V7/V14: File-Based Persistence (Markdown)**: 
+    - Every agent is mirrored as a physical `.md` file in the `Workspaces/[ProjectName]/Agent/` directory.
     - Allows manual editing and easy backups of your AI workforce.
     - Synchronizes internal state with the filesystem on every launch.
 - **Local Persistence Bridge**: A built-in Node.js Express server handles secure local file operations, ensuring data sovereignty and privacy.
