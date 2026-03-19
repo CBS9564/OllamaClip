@@ -185,19 +185,20 @@ app.get('/api/load-agents', async (req, res) => {
 
 // --- WORKSPACE & PROJECT Endpoints ---
 
-app.get('/api/workspaces', async (req, res) => {
-    try {
-        const workspaces = await dbQuery("SELECT * FROM workspaces ORDER BY created_at ASC");
-        res.json(workspaces);
-    } catch (error) {
-        res.status(500).json({ error: error.message });
-    }
-});
 
 app.get('/api/projects', async (req, res) => {
     try {
-        const projects = await dbQuery("SELECT * FROM projects ORDER BY created_at ASC");
-        res.json(projects);
+        const sql = `
+            SELECT p.*,
+            (SELECT content FROM chat_messages WHERE task_id = p.id ORDER BY created_at DESC LIMIT 1) as last_message
+            FROM projects p
+            ORDER BY created_at ASC
+        `;
+        const projects = await dbQuery(sql);
+        res.json(projects.map(p => ({
+            ...p,
+            lastMessage: p.last_message
+        })));
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
@@ -205,14 +206,35 @@ app.get('/api/projects', async (req, res) => {
 
 app.post('/api/projects', async (req, res) => {
     try {
-        const { name } = req.body;
+        const { name, context } = req.body;
         if (!name) return res.status(400).json({ error: "Name is required" });
         
         const id = 'project_' + Date.now().toString(36) + Math.random().toString(36).substr(2, 5);
-        await dbRun("INSERT INTO projects (id, name) VALUES (?, ?)", [id, name]);
+        await dbRun("INSERT INTO projects (id, name, context) VALUES (?, ?, ?)", [id, name, context || '']);
         
         ensureProjectDir(name);
-        res.json({ id, name, success: true });
+        res.json({ id, name, context: context || '', success: true });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.put('/api/projects/:id', async (req, res) => {
+    try {
+        const id = req.params.id;
+        const { name, context } = req.body;
+        
+        let updates = [];
+        let params = [];
+        
+        if (name !== undefined) { updates.push('name = ?'); params.push(name); }
+        if (context !== undefined) { updates.push('context = ?'); params.push(context); }
+        
+        if (updates.length > 0) {
+            params.push(id);
+            await dbRun(`UPDATE projects SET ${updates.join(', ')} WHERE id = ?`, params);
+        }
+        res.json({ success: true });
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
@@ -230,6 +252,8 @@ app.delete('/api/projects/:id', async (req, res) => {
         if (!proj) return res.status(404).json({ error: "Project not found" });
 
         // 2. Cascade DB deletions
+        await dbRun("DELETE FROM chat_messages WHERE task_id IN (SELECT id FROM tasks WHERE project_id = ?)", [id]);
+        await dbRun("DELETE FROM chat_messages WHERE task_id = ?", [id]); // Also delete project-wide chat
         await dbRun("DELETE FROM tasks WHERE project_id = ?", [id]);
         await dbRun("DELETE FROM agents_meta WHERE project_id = ?", [id]);
         await dbRun("DELETE FROM projects WHERE id = ?", [id]);
@@ -280,7 +304,8 @@ app.post('/api/settings', async (req, res) => {
 app.get('/api/tasks', async (req, res) => {
     try {
         const sql = `
-            SELECT t.*, p.name as project_name
+            SELECT t.*, p.name as project_name, p.context as project_context,
+            (SELECT content FROM chat_messages WHERE task_id = t.id ORDER BY created_at DESC LIMIT 1) as last_message
             FROM tasks t
             LEFT JOIN projects p ON t.project_id = p.id
         `;
@@ -288,11 +313,13 @@ app.get('/api/tasks', async (req, res) => {
         // SQLite stores boolean as 0/1, map back to true/false for frontend
         const mappedTasks = tasks.map(t => ({
             ...t,
+            lastMessage: t.last_message,
             completed: !!t.completed,
             heartbeat: !!t.heartbeat,
             agentId: t.agent_id,
             projectId: t.project_id,
             projectName: t.project_name,
+            projectContext: t.project_context,
             createdAt: t.created_at
         }));
         res.json(mappedTasks);
@@ -303,13 +330,13 @@ app.get('/api/tasks', async (req, res) => {
 
 app.post('/api/tasks', async (req, res) => {
     try {
-        const { id, title, agentId, projectId, completed, status } = req.body;
+        const { id, title, context, agentId, projectId, completed, status } = req.body;
         const pId = projectId || 'default_project';
         const st = status || 'open';
         
         await dbRun(
-            `INSERT INTO tasks (id, agent_id, project_id, title, status, completed) VALUES (?, ?, ?, ?, ?, ?)`,
-            [id, agentId || null, pId, title, st, completed ? 1 : 0]
+            `INSERT INTO tasks (id, agent_id, project_id, title, context, status, completed) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+            [id, agentId || null, pId, title, context || '', st, completed ? 1 : 0]
         );
         res.json({ success: true, id });
     } catch (error) {
@@ -320,12 +347,13 @@ app.post('/api/tasks', async (req, res) => {
 app.put('/api/tasks/:id', async (req, res) => {
     try {
         const taskId = req.params.id;
-        const { title, agentId, heartbeat, completed, status } = req.body;
+        const { title, context, agentId, heartbeat, completed, status } = req.body;
         
         let updates = [];
         let params = [];
         
         if (title !== undefined) { updates.push('title = ?'); params.push(title); }
+        if (context !== undefined) { updates.push('context = ?'); params.push(context); }
         if (agentId !== undefined) { updates.push('agent_id = ?'); params.push(agentId); }
         if (heartbeat !== undefined) { updates.push('heartbeat = ?'); params.push(heartbeat ? 1 : 0); }
         if (completed !== undefined) { updates.push('completed = ?'); params.push(completed ? 1 : 0); }
@@ -344,7 +372,53 @@ app.put('/api/tasks/:id', async (req, res) => {
 
 app.delete('/api/tasks/:id', async (req, res) => {
     try {
-        await dbRun(`DELETE FROM tasks WHERE id = ?`, [req.params.id]);
+        const taskId = req.params.id;
+        await dbRun(`DELETE FROM chat_messages WHERE task_id = ?`, [taskId]);
+        await dbRun(`DELETE FROM tasks WHERE id = ?`, [taskId]);
+        res.json({ success: true });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// --- CHAT (MESSAGES) Endpoints ---
+
+app.get('/api/chat/:taskId', async (req, res) => {
+    try {
+        const taskId = req.params.taskId;
+        const messages = await dbQuery("SELECT * FROM chat_messages WHERE task_id = ? ORDER BY created_at ASC", [taskId]);
+        res.json(messages.map(m => ({
+            ...m,
+            isProactive: !!m.is_proactive,
+            agentId: m.agent_id,
+            taskId: m.task_id,
+            createdAt: m.created_at
+        })));
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.post('/api/chat', async (req, res) => {
+    try {
+        const { taskId, agentId, role, content, isProactive } = req.body;
+        if (!taskId || !role || !content) return res.status(400).json({ error: "Missing required fields" });
+        
+        const id = 'msg_' + Date.now().toString(36) + Math.random().toString(36).substr(2, 5);
+        await dbRun(
+            "INSERT INTO chat_messages (id, task_id, agent_id, role, content, is_proactive) VALUES (?, ?, ?, ?, ?, ?)",
+            [id, taskId, agentId || null, role, content, isProactive ? 1 : 0]
+        );
+        res.json({ success: true, id });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.delete('/api/chat/task/:taskId', async (req, res) => {
+    try {
+        const taskId = req.params.taskId;
+        await dbRun("DELETE FROM chat_messages WHERE task_id = ?", [taskId]);
         res.json({ success: true });
     } catch (error) {
         res.status(500).json({ error: error.message });

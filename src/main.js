@@ -12,16 +12,17 @@ import { HeartbeatManager } from './api/heartbeat.js';
 const appState = {
   activeView: 'dashboard',
   agents: [],
+  tasks: [], // Centralized tasks
   localModels: [],
-  workspaces: [],
   projects: [],
-  activeWorkspaceId: null,
   activeProjectId: null,
   activeProjectName: "Global Context",
   isOllamaOnline: false,
   editingAgentId: null,
   backendUrl: 'http://localhost:3001/api',
-  heartbeat: null
+  heartbeat: null,
+  activeTaskId: null,
+  editingTaskId: null
 };
 
 // Colors for agents
@@ -52,6 +53,53 @@ async function init() {
       appState.settings = {};
   }
 
+  // Sidebar Unread Badge Logic (needed by fetchTasks)
+  const updateSidebarUnreads = () => {
+      const inboxBtn = document.querySelector('.nav-item[data-target="chat"]');
+      if (!inboxBtn) return;
+      
+      const unreads = JSON.parse(localStorage.getItem('ollamaclip_unreads_tasks') || '{}');
+      
+      // We only show unreads for the CURRENT project in the global badge
+      // to avoid "ghost" notifications for tasks you can't see in the current context.
+      let total = 0;
+      const projectTasks = (appState.tasks || []).filter(t => String(t.projectId) === String(appState.activeProjectId));
+      const validIdsForCurrentView = [
+          ...projectTasks.map(t => String(t.id)),
+          `project_${appState.activeProjectId}`
+      ];
+      
+      // Logic for total across all (for self-healing orphans)
+      const allValidTaskIds = (appState.tasks || []).map(t => String(t.id));
+      const allValidProjectIds = (appState.projects || []).map(p => `project_${p.id}`);
+
+      Object.keys(unreads).forEach(id => {
+          if (validIdsForCurrentView.includes(String(id))) {
+              total += unreads[id];
+          } else if (!allValidTaskIds.includes(String(id)) && !allValidProjectIds.includes(String(id))) {
+              // Truly an orphan (task/project deleted) -> remove it
+              delete unreads[id];
+          }
+      });
+      
+      // Save healed state
+      localStorage.setItem('ollamaclip_unreads_tasks', JSON.stringify(unreads));
+      
+      let badge = inboxBtn.querySelector('.unread-badge');
+      if (total > 0) {
+          if (!badge) {
+              badge = document.createElement('span');
+              badge.className = 'unread-badge';
+              badge.style.marginLeft = 'auto'; // ensure it's on the right
+              inboxBtn.appendChild(badge);
+          }
+          badge.textContent = total > 99 ? '99+' : total;
+      } else if (badge) {
+          badge.remove();
+      }
+  };
+  window.addEventListener('ollamaclip_unread_updated', updateSidebarUnreads);
+
   // 1. Check Ollama Status & Get Models
   try {
     const models = await fetchLocalModels();
@@ -68,83 +116,74 @@ async function init() {
     statusIndicator.querySelector('span:last-child').textContent = 'Ollama Offline';
   }
 
-  // 2. Fetch Workspaces & Projects
+  // 2. Fetch Projects & Tasks
   try {
-     const wRes = await fetch(`${appState.backendUrl}/workspaces`);
-     if(wRes.ok) appState.workspaces = await wRes.json();
-     
      const pRes = await fetch(`${appState.backendUrl}/projects`);
      if(pRes.ok) appState.projects = await pRes.json();
      
-     if(appState.workspaces.length > 0) {
-         appState.activeWorkspaceId = appState.workspaces[0].id;
-         if(appState.projects.length > 0) {
-             appState.activeProjectId = appState.projects[0].id;
-             appState.activeProjectName = appState.projects[0].name;
-         }
+     if(appState.projects.length > 0) {
+         appState.activeProjectId = appState.projects[0].id;
+         appState.activeProjectName = appState.projects[0].name;
      }
-  } catch(e) { console.error("Could not load workspaces/projects", e); }
+
+     await fetchTasks();
+  } catch(e) { console.error("Could not load projects/tasks", e); }
   
   // 3. Sync with Filesystem (Source of Truth)
   await syncAgentsWithFileSystem();
 
   // 4. Initialize Heartbeat (Autonomous Mode)
-  appState.heartbeat = new HeartbeatManager(() => appState.agents.filter(a => a.projectId === appState.activeProjectId || !appState.activeProjectId), (agent, message) => {
-      // PROACTIVE CALLBACK: Runs for every heartbeat reply
-      // We don't save here anymore, we let the HeartbeatManager or specific events handle it 
-      // OR we save it to the correct per-agent key
-      const key = `ollamaclip_history_${agent.id}`;
-      const history = JSON.parse(localStorage.getItem(key) || '[]');
-      history.push({
-          role: 'assistant',
-          content: message,
-          agentName: agent.name,
-          agentColor: agent.color,
-          isProactive: true
-      });
-      localStorage.setItem(key, JSON.stringify(history));
-  });
+  appState.heartbeat = new HeartbeatManager(
+      () => appState.agents.filter(a => a.projectId === appState.activeProjectId || !appState.activeProjectId), 
+      (detail) => {
+          // detail format: { role, text, agentName, agentColor, isProactive, taskId, taskTitle }
+          
+          // 1. Update Chat UI if it exists
+          if (window._onChatUpdate) {
+              window._onChatUpdate(detail);
+          }
+          
+          // 2. Global Unread Tracking (Task based)
+          // We increment if not in Chat view (chat.js handles internal unreads if in view)
+          if (appState.activeView !== 'chat') {
+              const unreads = JSON.parse(localStorage.getItem('ollamaclip_unreads_tasks') || '{}');
+              unreads[detail.taskId] = (unreads[detail.taskId] || 0) + 1;
+              localStorage.setItem('ollamaclip_unreads_tasks', JSON.stringify(unreads));
+              window.dispatchEvent(new CustomEvent('ollamaclip_unread_updated'));
+          }
+      }
+  );
   appState.heartbeat.start();
 
-  // Sidebar Unread Badge Logic
-  const updateSidebarUnreads = () => {
-      const inboxBtn = document.querySelector('.nav-item[data-target="chat"]');
-      if (!inboxBtn) return;
-      
-      const unreads = JSON.parse(localStorage.getItem('ollamaclip_unreads') || '{}');
-      const total = Object.values(unreads).reduce((a, b) => a + b, 0);
-      
-      let badge = inboxBtn.querySelector('.unread-badge');
-      if (total > 0) {
-          if (!badge) {
-              badge = document.createElement('span');
-              badge.className = 'unread-badge';
-              badge.style.marginLeft = 'auto'; // ensure it's on the right
-              inboxBtn.appendChild(badge);
-          }
-          badge.textContent = total > 99 ? '99+' : total;
-      } else if (badge) {
-          badge.remove();
-      }
-  };
-  window.addEventListener('ollamaclip_unread_updated', updateSidebarUnreads);
-  updateSidebarUnreads();
+   // No-op here, moved up
 
   // Global Unread Tracking
   window.addEventListener('ollamaclip_new_message', (e) => {
-      const { agent } = e.detail;
-      const isChatView = appState.activeView === 'chat';
-      
-      // We need to know which agent is currently selected in Chat UI if it's active
-      // For now, let's just increment if NOT in Chat view. 
-      // Finer-grained logic could be added if we store currentChatAgentId in appState.
-      if (!isChatView) {
-          const unreads = JSON.parse(localStorage.getItem('ollamaclip_unreads') || '{}');
-          unreads[agent.id] = (unreads[agent.id] || 0) + 1;
-          localStorage.setItem('ollamaclip_unreads', JSON.stringify(unreads));
-          window.dispatchEvent(new CustomEvent('ollamaclip_unread_updated'));
+      // Handled by Heartbeat callback in init now
+  });
+
+  // Task Fetcher
+  async function fetchTasks() {
+      try {
+          const res = await fetch(`${appState.backendUrl}/tasks`);
+          if (res.ok) {
+              appState.tasks = await res.json();
+              updateSidebarUnreads();
+          }
+      } catch (e) {
+          console.error("fetchTasks error:", e);
       }
-      // If in chat view, chat.js handles its own "active thread" logic and clears unreads.
+  }
+  window.fetchTasks = fetchTasks; // Expose for other modules
+
+  window.addEventListener('ollamaclip_tasks_updated', () => {
+      fetchTasks().then(() => {
+          // Re-render current view ONLY if it's the tasks list or dashboard
+          // Chat view handles its own sidebar refresh to avoid losing active chat state
+          if (['tasks', 'dashboard'].includes(appState.activeView)) {
+              updateView();
+          }
+      });
   });
 
   // 4. Bind Navigation
@@ -210,7 +249,7 @@ function updateView() {
       break;
     case 'tasks':
       pageTitle.textContent = 'Workflow Tasks';
-      renderTasks(contentContainer, projectAgents, appState.activeProjectId);
+      renderTasks(contentContainer, projectAgents, appState.activeProjectId, appState);
       break;
     case 'models':
       pageTitle.textContent = 'Model Library';

@@ -7,10 +7,12 @@ export function renderProjects(container, appState, updateView) {
     const titleInput = clone.querySelector('#new-project-title');
     const btnCreate = clone.querySelector('#btn-create-project');
 
+    const contextInput = clone.querySelector('#new-project-context');
+
     const renderList = () => {
         listContainer.innerHTML = '';
         if (appState.projects.length === 0) {
-            listContainer.innerHTML = '<li class="task-item"><div class="task-info"><span>No projects exist inside the Workspace. Create one above!</span></div></li>';
+            listContainer.innerHTML = '<li class="task-item"><div class="task-info"><span>No projects exist. Create one above!</span></div></li>';
             return;
         }
 
@@ -27,6 +29,7 @@ export function renderProjects(container, appState, updateView) {
                 <div class="task-info">
                     <span class="task-title" style="font-weight: 600;">${project.name}</span>
                     <span class="task-meta">${isProtected ? 'Protected Root Project' : 'Custom Project'}</span>
+                    ${project.context ? `<p style="font-size:0.75rem; color:var(--text-muted); margin-top:4px; max-width:400px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${project.context}</p>` : ''}
                 </div>
                 <div class="task-actions">
                     <button class="btn btn-sm btn-secondary btn-switch" title="Set Active Context" ${project.id === appState.activeProjectId ? 'disabled' : ''}>
@@ -89,13 +92,14 @@ export function renderProjects(container, appState, updateView) {
             const res = await fetch(`${appState.backendUrl}/projects`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ name })
+                body: JSON.stringify({ name, context: contextInput.value.trim() })
             });
             const data = await res.json();
             
             if (data.success) {
-                appState.projects.push({ id: data.id, name: data.name, workspace_id: data.workspace_id });
+                appState.projects.push({ id: data.id, name: data.name, context: data.context || '' });
                 titleInput.value = '';
+                contextInput.value = '';
                 renderList();
                 updateView();
             } else {

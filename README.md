@@ -13,7 +13,10 @@ OllamaClip is a high-performance, lightweight web-based orchestration platform f
 - **Task Management System**: A dedicated UI to create tasks, assign them to specific agents in your workforce, and track their completion status.
 - **Agent Collaboration & Global Inbox (V11):** Per-agent isolated chat histories and a shared workspace with `@mention` auto-triggering.
 - **Enhanced Inbox (V12):** Task flagging in messages, global unread counters in sidebar, and chat history management.
-- **Project-Centric Architecture (V14):** A professional, flattened hierarchy (`Project` -> `Agent` -> `Task`) backed by `sqlite3`. The legacy workspace layer has been eradicated for maximum efficiency and clarity.
+- **Project-Centric Architecture (V14/V15):** A professional, flattened hierarchy (`Project` -> `Agent` -> `Task`) backed by `sqlite3`. 
+    - **Cascading Deletions**: Deleting a task or project now automatically purges all associated chat messages and artifacts.
+    - **Real-time Inbox Sync**: Live message previews in the sidebar with content truncation and instant refresh.
+    - **Self-Healing Notifications**: Automated unread count pruning for deleted entities and project-context filtering.
 - **Interactive Dashboard & Model Manager (V5)**: Track active agents and manage local models. **Delete** models to free up space or **Pull** new ones directly from the Ollama Hub with real-time download progress.
 - **Advanced Agent Management (V6/V7)**: 
     - Full **Visual Agent Builder** Modal.

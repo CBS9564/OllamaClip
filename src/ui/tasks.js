@@ -1,6 +1,8 @@
+import { showModal, showToast } from './utils.js';
+
 const API_URL = 'http://localhost:3001/api';
 
-export function renderTasks(container, agents, activeProjectId) {
+export function renderTasks(container, agents, activeProjectId, appState) {
   const tpl = document.getElementById('tpl-tasks');
   const clone = tpl.content.cloneNode(true);
   container.innerHTML = '';
@@ -11,7 +13,10 @@ export function renderTasks(container, agents, activeProjectId) {
   const openTaskList = clone.querySelector('#open-task-list');
   const completedTaskList = clone.querySelector('#completed-task-list');
   
-  let editingTaskId = null;
+  const contextInput = clone.querySelector('#task-context-input');
+  
+  // Use persistent state
+  let editingTaskId = appState.editingTaskId || null;
 
   // Populate Select
   agents.forEach(agent => {
@@ -27,12 +32,12 @@ export function renderTasks(container, agents, activeProjectId) {
   };
 
   const renderList = async () => {
-      let allTasks = [];
-      try {
-          const res = await fetch(`${API_URL}/tasks`);
-          if (res.ok) allTasks = await res.json();
-      } catch(e) { console.error("Could not fetch tasks", e); }
+      // Use centralized appState.tasks if available, or fetch
+      if (typeof window.fetchTasks === 'function') {
+          await window.fetchTasks();
+      }
       
+      const allTasks = appState.tasks || [];
       openTaskList.innerHTML = '';
       completedTaskList.innerHTML = '';
 
@@ -48,7 +53,7 @@ export function renderTasks(container, agents, activeProjectId) {
           completedTaskList.innerHTML = '<li class="empty-msg" style="color:var(--text-muted); font-size:0.85rem; padding: 10px;">No completed tasks yet.</li>';
       }
 
-      allTasks.forEach(task => {
+      filteredTasks.forEach(task => { // Use filteredTasks here!
           const li = document.createElement('li');
           const isEditing = task.id === editingTaskId;
           li.className = `task-item ${isEditing ? 'editing' : ''}`;
@@ -59,6 +64,7 @@ export function renderTasks(container, agents, activeProjectId) {
               li.innerHTML = `
                   <div class="task-edit-form" style="display:flex; flex-direction:column; gap:8px; width:100%;">
                       <input type="text" class="edit-task-title" value="${task.title}" style="width:100%;" />
+                      <textarea class="edit-task-context" style="width:100%; height:60px; resize:none;">${task.context || ''}</textarea>
                       <div style="display:flex; gap:8px;">
                           <select class="edit-task-agent" style="flex:1;">
                               <option value="">Unassigned</option>
@@ -72,12 +78,13 @@ export function renderTasks(container, agents, activeProjectId) {
               
               li.querySelector('.btn-save-edit').addEventListener('click', async () => {
                   const newTitle = li.querySelector('.edit-task-title').value.trim();
+                  const newContext = li.querySelector('.edit-task-context').value.trim();
                   const newAgentId = li.querySelector('.edit-task-agent').value || null;
                   
                   await fetch(`${API_URL}/tasks/${task.id}`, {
                       method: 'PUT',
                       headers: {'Content-Type': 'application/json'},
-                      body: JSON.stringify({ title: newTitle, agentId: newAgentId })
+                      body: JSON.stringify({ title: newTitle, context: newContext, agentId: newAgentId })
                   });
                   
                   editingTaskId = null;
@@ -86,6 +93,7 @@ export function renderTasks(container, agents, activeProjectId) {
               
               li.querySelector('.btn-cancel-edit').addEventListener('click', () => {
                   editingTaskId = null;
+                  appState.editingTaskId = null; // Persist
                   renderList();
               });
           } else {
@@ -93,6 +101,7 @@ export function renderTasks(container, agents, activeProjectId) {
                   <div class="task-checkbox ${task.completed ? 'checked' : ''}"></div>
                   <div class="task-content">
                       <span class="task-title">${task.title}</span>
+                      ${task.context ? `<p style="font-size:0.75rem; color:var(--text-muted); margin-top:2px;">${task.context}</p>` : ''}
                       <div class="task-meta">
                           <span class="task-agent" style="background: ${agentInfo.color}20; color: ${agentInfo.color}">
                               <i class="ph-fill ph-robot"></i> ${agentInfo.name}
@@ -136,10 +145,21 @@ export function renderTasks(container, agents, activeProjectId) {
 
               li.querySelector('.task-delete').addEventListener('click', async (e) => {
                   e.stopPropagation();
-                  if (confirm("Delete this task?")) {
-                      await fetch(`${API_URL}/tasks/${task.id}`, { method: 'DELETE' });
-                      renderList();
-                  }
+                  showModal(
+                      "Delete Task?",
+                      `Are you sure you want to delete "${task.title}"?`,
+                      async () => {
+                          try {
+                              await fetch(`${appState.backendUrl}/tasks/${task.id}`, { method: 'DELETE' });
+                              console.log(`[Tasks] Deleted task ${task.id}. Refreshing...`);
+                              await renderList(); 
+                              showToast("Task deleted.", "success");
+                          } catch (err) {
+                              console.error("[Tasks] Deletion error:", err);
+                              showToast("Failed to delete task.", "error");
+                          }
+                      }
+                  );
               });
 
               if (!task.completed) {
@@ -172,6 +192,7 @@ export function renderTasks(container, agents, activeProjectId) {
 
                   li.querySelector('.task-edit').addEventListener('click', () => {
                       editingTaskId = task.id;
+                      appState.editingTaskId = task.id; // Persist
                       renderList();
                   });
               }
@@ -192,6 +213,7 @@ export function renderTasks(container, agents, activeProjectId) {
       const newTask = {
           id: Date.now().toString(),
           title: title,
+          context: contextInput.value.trim(),
           agentId: agentSelect.value || null,
           projectId: activeProjectId || 'default_project',
           completed: false,
@@ -205,6 +227,7 @@ export function renderTasks(container, agents, activeProjectId) {
       });
       
       titleInput.value = '';
+      contextInput.value = '';
       renderList();
   };
 

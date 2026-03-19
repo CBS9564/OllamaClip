@@ -35,7 +35,30 @@ async function runTests() {
         if (found) console.log("✅ Task found in database with correct metadata.");
         else throw new Error("Task not found in retrieval");
 
-        // 3. Check Workspace File Creation
+        // 3. Check Chat Message Persistence & Last Message Preview
+        console.log("➡️ Testing Chat Message & Last Message Preview...");
+        const msgRes = await fetch(`${API_BASE}/chat`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                taskId: taskId,
+                role: 'user',
+                content: "Sync Test Message"
+            })
+        });
+        if (msgRes.ok) console.log("✅ Chat message added.");
+
+        // Check if last_message is returned in task list
+        const taskListRes = await fetch(`${API_BASE}/tasks`);
+        const tasksWithMsg = await taskListRes.json();
+        const updatedTask = tasksWithMsg.find(t => t.id === taskId);
+        if (updatedTask && updatedTask.lastMessage === "Sync Test Message") {
+            console.log("✅ Last message preview verified in API.");
+        } else {
+            throw new Error("Last message preview mismatch or missing");
+        }
+
+        // 4. Check Workspace File Creation
         console.log("➡️ Testing Workspace File Creation...");
         const fileRes = await fetch(`${API_BASE}/workspace/file`, {
             method: 'POST',
@@ -56,11 +79,22 @@ async function runTests() {
             }
         } else throw new Error("File creation API failed");
 
-        // 4. Cleanup (Delete Task)
-        console.log("➡️ Testing Task Deletion...");
+        // 5. Cleanup (Delete Task & Verify Cascade)
+        console.log("➡️ Testing Cascading Task Deletion...");
         const delRes = await fetch(`${API_BASE}/tasks/${taskId}`, { method: 'DELETE' });
         const delData = await delRes.json();
-        if (delData.success) console.log("✅ Task deleted successfully.");
+        if (delData.success) {
+            console.log("✅ Task deleted successfully.");
+            
+            // Verify chat messages are gone
+            const historyRes = await fetch(`${API_BASE}/chat/${taskId}`);
+            const history = await historyRes.json();
+            if (history.length === 0) {
+                console.log("✅ Cascading deletion of chat messages verified.");
+            } else {
+                throw new Error("Chat messages persisted after task deletion!");
+            }
+        }
 
         console.log("\n✨ ALL BACKEND TESTS PASSED!");
     } catch (e) {

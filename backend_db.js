@@ -17,6 +17,7 @@ const db = new sqlite3.Database(dbPath, (err) => {
             db.run(`CREATE TABLE IF NOT EXISTS projects (
                 id TEXT PRIMARY KEY,
                 name TEXT NOT NULL,
+                context TEXT DEFAULT '',
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP
             )`);
 
@@ -32,12 +33,24 @@ const db = new sqlite3.Database(dbPath, (err) => {
                 agent_id TEXT,
                 project_id TEXT,
                 title TEXT NOT NULL,
+                context TEXT DEFAULT '',
                 status TEXT DEFAULT '',
                 heartbeat BOOLEAN DEFAULT 0,
                 completed BOOLEAN DEFAULT 0,
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY(agent_id) REFERENCES agents_meta(id),
                 FOREIGN KEY(project_id) REFERENCES projects(id)
+            )`);
+
+            db.run(`CREATE TABLE IF NOT EXISTS chat_messages (
+                id TEXT PRIMARY KEY,
+                task_id TEXT,
+                agent_id TEXT,
+                role TEXT NOT NULL,
+                content TEXT NOT NULL,
+                is_proactive BOOLEAN DEFAULT 0,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY(task_id) REFERENCES tasks(id)
             )`);
 
             db.run(`CREATE TABLE IF NOT EXISTS settings (
@@ -48,6 +61,15 @@ const db = new sqlite3.Database(dbPath, (err) => {
             // Insert default settings if they don't exist
             db.run("INSERT OR IGNORE INTO settings (key, value) VALUES ('ollamaclip_api_url', 'http://localhost:11434/api')");
             db.run("INSERT OR IGNORE INTO settings (key, value) VALUES ('ollamaclip_keep_alive', '5m')");
+
+            
+            // Migrations for existing DBs
+            db.run("ALTER TABLE projects ADD COLUMN context TEXT DEFAULT ''", (err) => {
+                if (err && !err.message.includes("duplicate column name")) console.log("[Database] Context column already exists in projects");
+            });
+            db.run("ALTER TABLE tasks ADD COLUMN context TEXT DEFAULT ''", (err) => {
+                if (err && !err.message.includes("duplicate column name")) console.log("[Database] Context column already exists in tasks");
+            });
 
             ensureDefaultProject();
         });

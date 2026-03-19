@@ -14,6 +14,8 @@
     <link rel="stylesheet" href="./src/style.css">
   </head>
   <body>
+    <div id="toast-container"></div>
+    <div id="modal-container" class="hidden"></div>
     <div id="app" class="app-layout">
       
       <!-- Sidebar Navigation -->
@@ -248,17 +250,18 @@
             <h2>Workflow Tasks</h2>
             <p class="text-muted">Manage your AI workforce assignments.</p>
           </div>
-          
-          <div class="task-input-section">
-            <input type="text" id="task-title-input" placeholder="What needs to be done?" />
-             <select id="task-agent-select">
-                <option value="">Assign to Unassigned</option>
-                <!-- Agent options populated via JS -->
-             </select>
-            <button class="btn btn-primary" id="btn-add-task">
-              <i class="ph ph-plus"></i> Add
-            </button>
-          </div>
+                    <div class="task-input-section" style="display:flex; flex-direction:column; gap:12px;">
+                        <div style="display:flex; gap:12px;">
+                            <input type="text" id="task-title-input" placeholder="What needs to be done?">
+                            <select id="task-agent-select">
+                                <option value="">Unassigned</option>
+                            </select>
+                            <button id="btn-add-task" class="btn btn-primary">
+                                <i class="ph ph-plus"></i>
+                            </button>
+                        </div>
+                        <textarea id="task-context-input" placeholder="Specific technical details, requirements, or instructions for this task..." style="height:60px; resize:none; border-radius:8px; padding:12px; background:rgba(0,0,0,0.2); border:1px solid var(--border-light); color:var(--text-primary); font-family:var(--font-family); outline:none; transition:border-color var(--transition-fast);"></textarea>
+                    </div>
 
           <div class="task-list-wrapper">
              <div class="task-list-header">
@@ -343,13 +346,13 @@
             <h2>Manage Projects</h2>
             <p class="text-muted">Organize your agents and tasks into separate workspaces.</p>
           </div>
-          
-          <div class="task-input-section" style="margin-bottom: 24px; display: flex; gap: 12px;">
-            <input type="text" id="new-project-title" placeholder="New Project Name..." class="setting-input" style="flex: 1;" />
-            <button class="btn btn-primary" id="btn-create-project">
-              <i class="ph ph-plus"></i> Create
-            </button>
-          </div>
+                        <div style="display:flex; flex-direction:column; gap:12px; margin-bottom:16px;">
+                            <input type="text" id="new-project-title" placeholder="Project Name (e.g. Website Redesign)">
+                            <textarea id="new-project-context" placeholder="Project Context & Objectives (e.g. This project aims to migrate the legacy PHP site to Next.js using a minimalist design...)" style="height:80px; resize:none; border-radius:8px; padding:12px; background:rgba(0,0,0,0.2); border:1px solid var(--border-light); color:var(--text-primary); font-family:var(--font-family); outline:none; transition:border-color var(--transition-fast);"></textarea>
+                            <button class="btn btn-primary" id="btn-create-project" style="align-self: flex-end;">
+                                <i class="ph ph-plus"></i> Create Project
+                            </button>
+                        </div>
 
           <div class="task-list-wrapper">
              <div class="task-list-header">
@@ -444,6 +447,20 @@
         </div>
       </div>
     </div>
+
+    <!-- Template for Modal -->
+    <template id="tpl-modal">
+        <div class="modal-overlay">
+            <div class="modal-content glass">
+                <h3 id="modal-title">Confirm Action</h3>
+                <p id="modal-message">Are you sure?</p>
+                <div class="modal-actions">
+                    <button id="modal-btn-cancel" class="btn btn-secondary">Cancel</button>
+                    <button id="modal-btn-confirm" class="btn btn-danger">Confirm</button>
+                </div>
+            </div>
+        </div>
+    </template>
 
     <script type="module" src="./src/main.js"></script>
   </body>
