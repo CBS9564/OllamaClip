@@ -85,6 +85,8 @@ OllamaClip is a high-performance, lightweight web-based orchestration platform f
 
 This project adheres strictly to **Optimization, Security, and User Experience**. By stripping away heavy frameworks, we eliminate dependency vulnerabilities and optimize TTFB (Time to First Byte). The pure CSS approach delivers a highly customized "WOW" factor right out of the box.
 
+For a deeper dive into the system design, directory structure, and database relationships, please refer to the [Architecture & Database Documentation](ARCHITECTURE.md).
+
 ---
 
 *Note: This project is meant to be run alongside a local Ollama instance on default port `11434`. Cross-Origin Resource Sharing (CORS) must be allowed if Ollama is running on a different port or machine.*
