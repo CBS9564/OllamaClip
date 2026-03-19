@@ -134,7 +134,7 @@ async function init() {
 
   // 4. Initialize Heartbeat (Autonomous Mode)
   appState.heartbeat = new HeartbeatManager(
-      () => appState.agents.filter(a => a.projectId === appState.activeProjectId || !appState.activeProjectId), 
+      () => appState.agents, 
       (detail) => {
           // detail format: { role, text, agentName, agentColor, isProactive, taskId, taskTitle }
           

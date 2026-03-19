@@ -74,33 +74,39 @@ export class HeartbeatManager {
         
         const systemPrompt = `${agent.systemPrompt}
         
-       CONTEXT:
-       Project: ${task.projectName}
-       Project Objectives: ${task.projectContext || 'No specific objective provided.'}
-       
-       YOUR CURRENT TASK: "${task.title}"
-       Task Specific Instructions: ${task.context || 'Follow general project objectives.'}
-       
-       MANDATORY: You MUST progress this task autonomously. To maintain your heartbeat loop, you MUST include at least one of these COMMAND TAGS in your response. If no tag is found, the system will assume you are stuck and will PAUSE your heartbeat.
-       
-       COMMAND TAGS (Exact format required):
-       - [TASK_STATUS: Message] : Update your status (e.g., "Researching", "Implemented UI").
-       - [TASK_EDIT: New Title | New Context] : Redefine the current task's objective or title as you learn more.
-       - [TASK_COMPLETE] : Mark this task finished once the objective is met.
-       - [TASK_PAUSE] : Stop your heartbeat temporarily (e.g., waiting for external process).
-       - [TASK_TRANSFER: AgentName] : Reassign to another agent.
-       - [TASK_CREATE: Title | AgentName] : Create a sub-task.
-       
-       TOOLS:
-       - [SAVE: filename.ext] Content [/SAVE] : Persist files.
-       - [QUESTION] : Use if you are genuinely blocked and need USER input.
-       
-       Keep your response concise. Focus on NEXT STEPS.🎉🏛️🔐`;
+### 🧠 OPERATIONAL ENVIRONMENT:
+- Project: ${task.projectName}
+- Global Objective: ${task.projectContext || 'No specific objective provided.'}
+- **CURRENT TASK**: "${task.title}"
+- **TASK DETAILS**: ${task.context || 'Follow general project objectives.'}
+
+### 🛠️ COMMAND TOOLS (MANDATORY):
+To continue your autonomous loop, you **MUST** include exactly one of these tags in your response. If you don't, your "Heartbeat" will stop.
+
+1. \`[TASK_STATUS: Message]\` : Use this to report what you are doing right now (e.g., "[TASK_STATUS: Researching API documentation]").
+2. \`[TASK_COMPLETE]\` : Use ONLY when the entire task objective is met.
+3. \`[TASK_EDIT: New Title | New Context]\` : Use to refine your task as you progress.
+4. \`[TASK_CREATE: Title | AgentName]\` : Create a sub-task for another agent.
+5. \`[SAVE: filename.ext] Content [/SAVE]\` : Persist code or notes to the workspace.
+6. \`[QUESTION]\` : Use if you are genuinely stuck and need the USER's help.
+
+### 📝 RESPONSE FORMAT EXAMPLE:
+"I have analyzed the requirements. I will now start the implementation.
+[TASK_STATUS: Starting implementation of the login logic]
+[SAVE: login.js] 
+// implementation here...
+[/SAVE]"
+
+### ⚠️ CRITICAL RULE:
+Focus on progression. Be concise. If you provide a generic response without a \`[TAG]\`, you will be deactivated.🎉🏛️🔐`;
 
         const messages = [
             { role: 'system', content: systemPrompt },
-            ...history.slice(-10).map(h => ({ role: h.role, content: h.content })),
-            { role: 'user', content: `[HEARTBEAT] Current Task: ${task.title}. Continue your work.` }
+            ...history.slice(-4).map(h => ({ role: h.role, content: h.content })),
+            { role: 'user', content: `[SYSTEM HEARTBEAT]
+Current Task: "${task.title}"
+Action Required: Progress this task now. 
+IMPORTANT: Your response MUST contain a COMMAND TAG like [TASK_STATUS: ...] or [TASK_COMPLETE] to trigger the next step. If you do not use a tag, your process will be TERMINATED.` }
         ];
 
         let fullReply = "";
@@ -119,13 +125,13 @@ export class HeartbeatManager {
                 let cleanedReply = fullReply;
                 
                 // --- Detect Progress & Control Tags ---
-                const hasComplete = /\[(TASK_COMPLETE|MARK COMPLETED|TASK COMPLETE|FINISHED)\]/i.test(fullReply);
-                const hasPause = /\[TASK_PAUSE\]/i.test(fullReply);
-                const hasTransfer = /\[TASK_TRANSFER:/i.test(fullReply);
-                const hasStatus = /\[(TASK_STATUS|STATUS|PROGRESS):/i.test(fullReply);
-                const hasEdit = /\[(TASK_EDIT|RENAME TASK|TASK_RENAME):/i.test(fullReply);
-                const hasSave = fullReply.includes('[SAVE:');
-                const hasCreate = /\[TASK_CREATE:/i.test(fullReply);
+                const hasComplete = /\[?(TASK_COMPLETE|MARK COMPLETED|TASK COMPLETE|FINISHED)\]?/i.test(fullReply);
+                const hasPause = /\[?TASK_PAUSE\]?/i.test(fullReply);
+                const hasTransfer = /\[?TASK_TRANSFER[:\s]/i.test(fullReply);
+                const hasStatus = /\[?(TASK_STATUS|STATUS|PROGRESS)[:\s]/i.test(fullReply);
+                const hasEdit = /\[?(TASK_EDIT|RENAME TASK|TASK_RENAME)[:\s]/i.test(fullReply);
+                const hasSave = fullReply.includes('[SAVE:') || fullReply.includes('SAVE:');
+                const hasCreate = /\[?TASK_CREATE[:\s]/i.test(fullReply);
                 const hasQuestion = fullReply.includes('QUESTION') || fullReply.includes('[QUESTION]');
                 const hasWaiting = fullReply.includes('WAITING');
 
@@ -187,11 +193,11 @@ export class HeartbeatManager {
                 const transferRegex = /\[TASK_TRANSFER:(.*?)\]/g;
 
                 // Cleanup tags from the cleanedReply for UI display
-                cleanedReply = cleanedReply.replace(statusRegex, (m, status) => `*(Updated status: ${status})*`);
-                cleanedReply = cleanedReply.replace(completeRegex, "*(Task Completed)*");
-                cleanedReply = cleanedReply.replace(pauseRegex, "*(Task Paused)*");
-                cleanedReply = cleanedReply.replace(transferRegex, (m, name) => `*(Transferred task to: ${name})*`);
-                cleanedReply = cleanedReply.replace(/\[TASK_CREATE:(.*?)\|(.*?)\]/g, (m, title, name) => `*(Created new task: "${title.trim()}" for ${name.trim()})*`);
+                cleanedReply = cleanedReply.replace(/\[?(TASK_STATUS|STATUS|PROGRESS)[:\s]\s*(.*?)\]?/gi, (m, statusLabel, statusText) => `*(Updated status: ${statusText})*`);
+                cleanedReply = cleanedReply.replace(/\[?(TASK_COMPLETE|MARK COMPLETED|TASK COMPLETE|FINISHED)\]?/gi, "*(Task Completed)*");
+                cleanedReply = cleanedReply.replace(/\[?TASK_PAUSE\]?/gi, "*(Task Paused)*");
+                cleanedReply = cleanedReply.replace(/\[?TASK_TRANSFER[:\s]\s*(.*?)\]?/gi, (m, name) => `*(Transferred task to: ${name})*`);
+                cleanedReply = cleanedReply.replace(/\[?TASK_CREATE[:\s]\s*([^|\]\n]+)\s*\|\s*([^\]\n]+)\s*\]?/gi, (m, title, name) => `*(Created new task: "${title.trim()}" for ${name.trim()})*`);
                 cleanedReply = cleanedReply.replace(/\[DONE\]/g, "*(Finished)*");
 
                 // --- Persistence ---
@@ -225,7 +231,7 @@ export class HeartbeatManager {
                 console.log(`[Orchestration] Checking for commands in reply from ${agent.name}...`);
                 
                 // 1. Task Transfer [TASK_TRANSFER:AgentName]
-                const oTransferRegex = /\[?TASK_TRANSFER:\s*([^\]\n]+)\s*\]?/gi;
+                const oTransferRegex = /\[?TASK_TRANSFER[:\s]\s*([^\]\n]+)\s*\]?/gi;
                 const oTransferMatch = oTransferRegex.exec(fullReply);
                 if (oTransferMatch) {
                     const targetName = oTransferMatch[1].trim();
@@ -241,7 +247,7 @@ export class HeartbeatManager {
                 }
 
                 // 2. Task Creation [TASK_CREATE:Title | AgentName]
-                const oCreateRegex = /\[?TASK_CREATE:\s*([^|\]\n]+)\s*\|\s*([^\]\n]+)\s*\]?/gi;
+                const oCreateRegex = /\[?TASK_CREATE[:\s]\s*([^|\]\n]+)\s*\|\s*([^\]\n]+)\s*\]?/gi;
                 let cMatch;
                 while ((cMatch = oCreateRegex.exec(fullReply)) !== null) {
                     const title = cMatch[1].trim();
@@ -276,23 +282,23 @@ export class HeartbeatManager {
                 }
 
                 // 3. Task Status [TASK_STATUS:Message]
-                const oStatusRegex = /\[?(TASK_STATUS|STATUS|PROGRESS):\s*([^\]\n]+)\s*\]?/gi;
+                const oStatusRegex = /\[?(TASK_STATUS|STATUS|PROGRESS)[:\s]\s*([^\]\n]+)\s*\]?/gi;
                 const oStatusMatch = oStatusRegex.exec(fullReply);
                 if (oStatusMatch) {
-                    const newStatus = oStatusMatch[1].trim();
+                    const newStatus = oStatusMatch[2].trim();
                     console.log(`[Orchestration] Updating status for task ${task.id}: "${newStatus}"`);
                     this.updateTask(task.id, { status: newStatus });
                 }
 
                 // 4. Task Completion [TASK_COMPLETE]
-                if (/\[(TASK_COMPLETE|MARK COMPLETED|TASK COMPLETE|FINISHED)\]/i.test(fullReply)) {
+                if (/\[?(TASK_COMPLETE|MARK COMPLETED|TASK COMPLETE|FINISHED)\]?/i.test(fullReply)) {
                     console.log(`[Orchestration] Completing task ${task.id}`);
                     this.updateTaskCompletion(task.id);
                     showToast(`Agent ${agent.name} completed task: "${task.title}"`, 'success');
                 }
 
                 // 5. Task Edit [TASK_EDIT:Title | Context]
-                const oEditRegex = /\[?(TASK_EDIT|RENAME TASK|TASK_RENAME):\s*([^|\]\n]+)\s*\|\s*([^\]\n]+)\s*\]?/gi;
+                const oEditRegex = /\[?(TASK_EDIT|RENAME TASK|TASK_RENAME)[:\s]\s*([^|\]\n]+)\s*\|\s*([^\]\n]+)\s*\]?/gi;
                 const oEditMatch = oEditRegex.exec(fullReply);
                 if (oEditMatch) {
                     const newTitle = oEditMatch[2].trim();
