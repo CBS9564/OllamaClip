@@ -15,8 +15,13 @@ OllamaClip is a high-performance, lightweight web-based orchestration platform f
 - **Enhanced Inbox (V12):** Task flagging in messages, global unread counters in sidebar, and chat history management.
 - **Project-Centric Architecture (V14/V15):** A professional, flattened hierarchy (`Project` -> `Agent` -> `Task`) backed by `sqlite3`. 
     - **Cascading Deletions**: Deleting a task or project now automatically purges all associated chat messages and artifacts.
+    - **Two-Step Confirmation**: Enhanced project deletion with a robust "double-click" state button to prevent accidental data loss.
     - **Real-time Inbox Sync**: Live message previews in the sidebar with content truncation and instant refresh.
     - **Self-Healing Notifications**: Automated unread count pruning for deleted entities and project-context filtering.
+- **Hierarchical Organizational Chart (V17)**: 
+    - **Parent-Child Visualization**: A dedicated tree diagram on the dashboard to track agent lineage (CEO -> Specialist -> Sub-agent).
+    - **Glass-Morphism Connectors**: Advanced CSS-based hierarchical lines and centered node layouts for a premium feel.
+    - **Dynamic Tree Building**: Real-time reconstruction of the workforce hierarchy from database metadata.
 - **Interactive Dashboard & Model Manager (V5)**: Track active agents and manage local models. **Delete** models to free up space or **Pull** new ones directly from the Ollama Hub with real-time download progress.
 - **Advanced Agent Management (V6/V7)**: 
     - Full **Visual Agent Builder** Modal.
@@ -30,7 +35,13 @@ OllamaClip is a high-performance, lightweight web-based orchestration platform f
 - **Settings & Configuration (V4)**: Modify your Ollama Base URL, control model VRAM retention, and manage local data.
 - **Agent Heartbeat System (V10)**: 
     - **Heartbeat Loop**: Agents wake up every 30s to progress their assigned tasks.
-- **Auto-CEO**: Every project starts with a CEO agent who understands the global context.
+- **Auto-CEO & Model Optimization (V16)**:
+    - **Best-Fit Model Selection**: Every project starts with a CEO agent assigned the most optimized model available on your Ollama server (prioritizing `llama3.1`, `llama3`, etc., with resource-aware fallbacks).
+    - **Exact Nomenclature Mapping**: Seamlessly handles complex model names (e.g., `llama3.2:1b`, `company/model:tag`), ensuring base names are automatically mapped to valid canonical versions for the Ollama API.
+    - **CEO Awareness**: The CEO is explicitly informed of all available models, enabling intelligent specialist hiring and task delegation.
+- **Granular UI Performance (V16)**:
+    - **Event-Driven Refreshes**: Optimized the frontend to use an internal event system. Navigation and data updates (Creating agents/tasks/projects) now happen in-place without full-page flickering or redundant re-renders.
+    - **Real-time Dashboard**: Organizational charts and stats update gracefully as agents work in the background.
 - **Orchestration**: Agents can create tasks for each other (`[TASK_CREATE]`) or hire new agents (`[AGENT_CREATE]`).
 - **Task Tail**: Intelligent locking prevents concurrent agent conflicts on a single task.
 - **Stability Queue**: Serialized Ollama requests to prevent server crashes.

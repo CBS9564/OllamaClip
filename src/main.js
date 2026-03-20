@@ -59,9 +59,6 @@ async function init() {
       if (!inboxBtn) return;
       
       const unreads = JSON.parse(localStorage.getItem('ollamaclip_unreads_tasks') || '{}');
-      
-      // We only show unreads for the CURRENT project in the global badge
-      // to avoid "ghost" notifications for tasks you can't see in the current context.
       let total = 0;
       const projectTasks = (appState.tasks || []).filter(t => String(t.projectId) === String(appState.activeProjectId));
       const validIdsForCurrentView = [
@@ -69,7 +66,6 @@ async function init() {
           `project_${appState.activeProjectId}`
       ];
       
-      // Logic for total across all (for self-healing orphans)
       const allValidTaskIds = (appState.tasks || []).map(t => String(t.id));
       const allValidProjectIds = (appState.projects || []).map(p => `project_${p.id}`);
 
@@ -77,12 +73,9 @@ async function init() {
           if (validIdsForCurrentView.includes(String(id))) {
               total += unreads[id];
           } else if (!allValidTaskIds.includes(String(id)) && !allValidProjectIds.includes(String(id))) {
-              // Truly an orphan (task/project deleted) -> remove it
               delete unreads[id];
           }
       });
-      
-      // Save healed state
       localStorage.setItem('ollamaclip_unreads_tasks', JSON.stringify(unreads));
       
       let badge = inboxBtn.querySelector('.unread-badge');
@@ -90,7 +83,7 @@ async function init() {
           if (!badge) {
               badge = document.createElement('span');
               badge.className = 'unread-badge';
-              badge.style.marginLeft = 'auto'; // ensure it's on the right
+              badge.style.marginLeft = 'auto';
               inboxBtn.appendChild(badge);
           }
           badge.textContent = total > 99 ? '99+' : total;
@@ -99,6 +92,47 @@ async function init() {
       }
   };
   window.addEventListener('ollamaclip_unread_updated', updateSidebarUnreads);
+
+  async function fetchTasks() {
+      try {
+          const res = await fetch(`${appState.backendUrl}/tasks`);
+          if (res.ok) {
+              appState.tasks = await res.json();
+              updateSidebarUnreads();
+          }
+      } catch (e) {
+          console.error("fetchTasks error:", e);
+      }
+  }
+  window.fetchTasks = fetchTasks;
+
+  window.addEventListener('ollamaclip_tasks_updated', () => {
+      fetchTasks().then(() => {
+          // No force update needed; components like tasks.js or dashboard handle this internally
+          // or will be fresh when we switch to them.
+          updateView(); 
+      });
+  });
+
+  window.addEventListener('ollamaclip_agents_updated', () => {
+      // If we are on a view that shows agents, refresh it
+      if (['agents', 'dashboard', 'chat'].includes(appState.activeView)) {
+          updateView();
+      }
+  });
+
+  window.addEventListener('ollamaclip_projects_updated', () => {
+      // Refresh project list if on projects view
+      if (appState.activeView === 'projects') {
+          updateView();
+      }
+  });
+
+  window.addEventListener('ollamaclip_context_changed', () => {
+      // Context change is a major event, we might want to force a full re-render
+      // to ensure all internal state of components is reset correctly.
+      updateView(true);
+  });
 
   // 1. Check Ollama Status & Get Models
   try {
@@ -136,15 +170,10 @@ async function init() {
   appState.heartbeat = new HeartbeatManager(
       () => appState.agents, 
       (detail) => {
-          // detail format: { role, text, agentName, agentColor, isProactive, taskId, taskTitle }
-          
-          // 1. Update Chat UI if it exists
           if (window._onChatUpdate) {
               window._onChatUpdate(detail);
           }
           
-          // 2. Global Unread Tracking (Task based)
-          // We increment if not in Chat view (chat.js handles internal unreads if in view)
           if (appState.activeView !== 'chat') {
               const unreads = JSON.parse(localStorage.getItem('ollamaclip_unreads_tasks') || '{}');
               unreads[detail.taskId] = (unreads[detail.taskId] || 0) + 1;
@@ -154,37 +183,6 @@ async function init() {
       }
   );
   appState.heartbeat.start();
-
-   // No-op here, moved up
-
-  // Global Unread Tracking
-  window.addEventListener('ollamaclip_new_message', (e) => {
-      // Handled by Heartbeat callback in init now
-  });
-
-  // Task Fetcher
-  async function fetchTasks() {
-      try {
-          const res = await fetch(`${appState.backendUrl}/tasks`);
-          if (res.ok) {
-              appState.tasks = await res.json();
-              updateSidebarUnreads();
-          }
-      } catch (e) {
-          console.error("fetchTasks error:", e);
-      }
-  }
-  window.fetchTasks = fetchTasks; // Expose for other modules
-
-  window.addEventListener('ollamaclip_tasks_updated', () => {
-      fetchTasks().then(() => {
-          // Re-render current view ONLY if it's the tasks list or dashboard
-          // Chat view handles its own sidebar refresh to avoid losing active chat state
-          if (['tasks', 'dashboard'].includes(appState.activeView)) {
-              updateView();
-          }
-      });
-  });
 
   // 4. Bind Navigation
   navItems.forEach(item => {
@@ -213,10 +211,17 @@ async function init() {
 // Removed Workspace & Project Dropdown Logic from Header since we use dedicated page
 
 // Router/View Manager
-function updateView() {
+let lastRenderedView = null;
+
+function updateView(force = false) {
+  if (lastRenderedView === appState.activeView && !force) {
+      console.log(`[UI] Skipping redundant render for view: ${appState.activeView}`);
+      return;
+  }
+  lastRenderedView = appState.activeView;
+  
   pageTitle.textContent = appState.activeView.charAt(0).toUpperCase() + appState.activeView.slice(1);
   
-  // Manage Add button visibility based on view
   if(appState.activeView === 'dashboard' || appState.activeView === 'agents') {
       btnNewAgent.style.display = 'inline-flex';
   } else {
@@ -227,13 +232,11 @@ function updateView() {
 
   switch(appState.activeView) {
     case 'dashboard':
-      renderDashboard(contentContainer, projectAgents, appState.localModels, appState, updateView);
+      renderDashboard(contentContainer, projectAgents, appState.localModels, appState, () => updateView(true));
       break;
     case 'projects':
       pageTitle.textContent = 'Projects';
-      renderProjects(contentContainer, appState, () => {
-          updateView();
-      });
+      renderProjects(contentContainer, appState, () => updateView(true));
       break;
     case 'chat':
       pageTitle.textContent = 'Inbox';
@@ -243,8 +246,8 @@ function updateView() {
       renderAgents(
           contentContainer, 
           projectAgents, 
-          (id) => openAgentWizard(id), // Edit callback
-          (id) => deleteAgent(id)      // Delete callback
+          (id) => openAgentWizard(id),
+          (id) => deleteAgent(id)
       );
       break;
     case 'tasks':
@@ -253,7 +256,7 @@ function updateView() {
       break;
     case 'models':
       pageTitle.textContent = 'Model Library';
-      renderModelsManager(contentContainer, appState, updateView);
+      renderModelsManager(contentContainer, appState, () => updateView(true));
       break;
     case 'settings':
       pageTitle.textContent = 'Preferences & Configuration';
@@ -313,9 +316,10 @@ async function deleteAgent(id) {
     const agent = appState.agents.find(a => a.id === id);
     if (!agent) return;
 
-    // 1. Local State
+    // 1. Local State (Immediate UI Feedback)
     appState.agents = appState.agents.filter(a => a.id !== id);
     localStorage.setItem('ollamaclip_agents', JSON.stringify(appState.agents));
+    window.dispatchEvent(new CustomEvent('ollamaclip_agents_updated'));
     
     // 2. Physical File
     try {
@@ -330,8 +334,6 @@ async function deleteAgent(id) {
     } catch(e) {
         console.warn("[Persistence] Deletion request failed:", e);
     }
-
-    updateView();
 }
 
 async function syncAgentsWithFileSystem() {
@@ -350,22 +352,10 @@ async function syncAgentsWithFileSystem() {
                 // If we have physical agents, they take priority
                 appState.agents = physicalAgents;
                 localStorage.setItem('ollamaclip_agents', JSON.stringify(appState.agents));
-            } else if (appState.agents.length > 0) {
-                // MIGRATION: If physical is empty but we have local agents, 
-                // push them to the backend to create the files
-                console.log("[Persistence] Migrating local agents to physical files...");
-                for (const agent of appState.agents) {
-                    // Safety: Valid ID check
-                    if (!agent.id || agent.id === 'undefined' || agent.id === 'null') {
-                        agent.id = "agent-" + Date.now().toString();
-                    }
-                    console.log(`[Persistence] Migrating ${agent.name}...`);
-                    fetch(`${appState.backendUrl}/save-agent`, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify(agent)
-                    }).catch(e => console.warn("Migration failed for:", agent.name, e));
-                }
+            } else {
+                // If backend is empty, we should also clear local state to stay in sync
+                appState.agents = [];
+                localStorage.setItem('ollamaclip_agents', JSON.stringify([]));
             }
         }
     } catch(e) {
@@ -424,10 +414,9 @@ if(btnSaveAgent) {
             appState.agents.push(targetAgent);
         }
 
-        console.log("[State] Saving agent to memory:", targetAgent);
-
         // 1. Persistence - Local
         localStorage.setItem('ollamaclip_agents', JSON.stringify(appState.agents));
+        window.dispatchEvent(new CustomEvent('ollamaclip_agents_updated'));
 
         // 2. Persistence - Physical (Internal Bridge)
         if (targetAgent) {
@@ -441,7 +430,8 @@ if(btnSaveAgent) {
                 if (data.success && data.filename) {
                     targetAgent.filename = data.filename;
                     localStorage.setItem('ollamaclip_agents', JSON.stringify(appState.agents));
-                    console.log("[Persistence] Physical sync successful, filename cached:", data.filename);
+                    // No need for a 2nd event if name/role didn't change, but keep it for sync
+                    window.dispatchEvent(new CustomEvent('ollamaclip_agents_updated'));
                 }
             })
             .catch(e => console.error("[Persistence] Physical sync failed:", e));
@@ -450,7 +440,6 @@ if(btnSaveAgent) {
         // 3. UI Update
         closeAgentWizard();
         appState.editingAgentId = null; 
-        updateView();
     });
 }
 

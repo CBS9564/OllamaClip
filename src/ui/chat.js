@@ -239,9 +239,28 @@ export function renderChat(container, agents, appState) {
         window.dispatchEvent(new CustomEvent('ollamaclip_unread_updated'));
 
         // Trigger Agent Response
-        const assignedAgent = agents.find(a => a.id === currentTask.agentId);
-        if (!assignedAgent) {
-            appendMessage('system', 'No agent assigned to this task. Assign an agent to get a response.');
+        // 1. @Mention Handling (Overrides assigned agent)
+        let targetAgent = null;
+        const mentionMatch = text.match(/^@(\w+)/);
+        if (mentionMatch) {
+            const agentName = mentionMatch[1].toLowerCase();
+            targetAgent = agents.find(a => 
+                a.name.toLowerCase() === agentName && 
+                String(a.projectId) === String(appState.activeProjectId)
+            );
+        }
+
+        // 2. Fallback to assigned agent
+        if (!targetAgent) {
+            targetAgent = agents.find(a => a.id === currentTask.agentId);
+        }
+
+        if (!targetAgent) {
+            if (currentTaskId.startsWith('project_')) {
+                appendMessage('system', 'In General Chat, use @AgentName (e.g., @CEO) to talk to a specific agent.');
+            } else {
+                appendMessage('system', 'No agent assigned to this task. Assign an agent or use @AgentName.');
+            }
             return;
         }
 
@@ -249,7 +268,7 @@ export function renderChat(container, agents, appState) {
         btnSend.disabled = true;
         btnSend.innerHTML = '<i class="ph ph-spinner ph-spin"></i>';
 
-        const replyDiv = appendMessage('agent', '', assignedAgent.name, assignedAgent.color);
+        const replyDiv = appendMessage('agent', '', targetAgent.name, targetAgent.color);
         const textNode = document.createElement('span');
         replyDiv.querySelector('.message-text').appendChild(textNode);
         
@@ -258,17 +277,20 @@ export function renderChat(container, agents, appState) {
         // Prepare context
         const historyRes = await fetch(`${appState.backendUrl}/chat/${currentTaskId}`);
         const history = await historyRes.json();
+        
+        // Strip mention from the text sent to model
+        const queryText = mentionMatch ? text.replace(/^@\w+\s*/, '') : text;
 
         const messages = [
-            { role: 'system', content: `${assignedAgent.systemPrompt}\n\nProject: ${currentTask.projectName}\nTask: ${currentTask.title}\nContext: ${currentTask.context}` },
+            { role: 'system', content: `${targetAgent.systemPrompt}\n\nProject: ${currentTask.projectName}\nTask: ${currentTask.title}\nContext: ${currentTask.context}` },
             ...history.slice(-10).map(h => ({ role: h.role, content: h.content })),
-            { role: 'user', content: text }
+            { role: 'user', content: queryText }
         ];
 
         await chatWithModel(
-            assignedAgent.model,
+            targetAgent.model,
             messages,
-            assignedAgent.options || {},
+            targetAgent.options || {},
             (chunk) => {
                 fullReply += chunk;
                 textNode.innerText = fullReply;

@@ -8,10 +8,12 @@ export function renderAgents(container, agents, onEdit, onDelete) {
     const clone = tpl.content.cloneNode(true);
     const grid = clone.querySelector('#agents-grid');
 
-    if (agents.length === 0) {
-        grid.innerHTML = '<p class="empty-state" style="grid-column: 1/-1; padding: 48px;">No agents configured yet. Use the "New Agent" button to get started.</p>';
-    } else {
-        agents.forEach(agent => {
+    const renderGrid = () => {
+        grid.innerHTML = '';
+        if (agents.length === 0) {
+            grid.innerHTML = '<p class="empty-state" style="grid-column: 1/-1; padding: 48px;">No agents configured yet. Use the "New Agent" button to get started.</p>';
+        } else {
+            agents.forEach(agent => {
             const card = document.createElement('div');
             card.className = 'agent-card glass-panel';
             card.style.display = 'flex';
@@ -99,7 +101,13 @@ export function renderAgents(container, agents, onEdit, onDelete) {
             grid.appendChild(card);
         });
     }
+};
 
+    // Handle updates (e.g. from CEO creating an agent or another event)
+    const onAgentsUpdated = () => renderGrid();
+    window.addEventListener('ollamaclip_agents_updated', onAgentsUpdated);
+
+    renderGrid();
     container.innerHTML = '';
     container.appendChild(clone);
 }

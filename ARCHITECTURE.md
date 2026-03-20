@@ -52,6 +52,7 @@ erDiagram
     AGENTS_META {
         text id PK
         text project_id FK
+        text parent_id FK
         text filename
     }
 
@@ -95,8 +96,15 @@ erDiagram
     - Purges the `task` from the DB.
     - Purges all `chat_messages` linked to that `task_id`.
 
-### 🏢 CEO & Orchestration
-1. **Auto-CEO**: Every new project initializes with a **CEO Agent** containing the project context.
-2. **Infinite Team**: The CEO (and other agents) can use `[AGENT_CREATE]` to spawn new specialists.
-3. **Serialized Ollama**: All AI requests are queued to ensure stability and prevent VRAM spikes.
-4. **Task Tail**: A locking system ensures that only one agent works on a specific task at a time, preventing overlapping logic.
+### 🏢 AI Orchestration & Logic
+1. **Model Management (V16)**:
+    - **Selection**: `getBestAvailableModel()` in `backend_db.js` ranks models based on a preference list (`llama3.1`, `llama3`, `mistral`, `phi3`) and falls back to a size-safe model (<10GB) if available.
+    - **Nomenclature**: The `server.js` persistence layer automatically maps user/agent provided base names to their canonical versions (e.g., `llama3.2` -> `llama3.2:1b`).
+    - **CEO Prompting**: The list of all available models is injected into the CEO's system prompt to guide sub-agent creation.
+2. **Heartbeat & Tasks**: Agents process tasks in a 30s background loop.
+3. **Hierarchical Org Chart (V17)**: 
+    - The `agents_meta` table now includes a `parent_id` reference, allowing the internal state to reflect the chain of command.
+    - The `server.js` persistence layer synchronizes this hierarchy with Markdown frontmatter (`parent_id` field).
+    - The `dashboard.js` builds a recursive tree from this flat list for visualization.
+4. **Advanced UI Refreshes**: Each component (Dashboard, Tasks, Agents, Projects) is reactive. Global events (`ollamaclip_tasks_updated`, etc.) trigger granular DOM updates instead of full-page re-renders.
+5. **Stability Queue**: All Ollama API calls are serialized to prevent concurrent request spikes.

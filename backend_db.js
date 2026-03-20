@@ -24,8 +24,10 @@ const db = new sqlite3.Database(dbPath, (err) => {
             db.run(`CREATE TABLE IF NOT EXISTS agents_meta (
                 id TEXT PRIMARY KEY,
                 project_id TEXT,
+                parent_id TEXT,
                 filename TEXT,
-                FOREIGN KEY(project_id) REFERENCES projects(id)
+                FOREIGN KEY(project_id) REFERENCES projects(id),
+                FOREIGN KEY(parent_id) REFERENCES agents_meta(id)
             )`);
 
             db.run(`CREATE TABLE IF NOT EXISTS tasks (
@@ -70,11 +72,63 @@ const db = new sqlite3.Database(dbPath, (err) => {
             db.run("ALTER TABLE tasks ADD COLUMN context TEXT DEFAULT ''", (err) => {
                 if (err && !err.message.includes("duplicate column name")) console.log("[Database] Context column already exists in tasks");
             });
+            db.run("ALTER TABLE agents_meta ADD COLUMN parent_id TEXT", (err) => {
+                if (err && !err.message.includes("duplicate column name")) console.log("[Database] parent_id column already exists in agents_meta");
+            });
 
-            ensureDefaultProject();
+            ensureWorkspacesRoot();
         });
     }
 });
+
+/**
+ * Fetch available models from local Ollama instance (Backend version)
+ */
+export async function fetchOllamaModels() {
+    try {
+        const settings = await dbQuery("SELECT value FROM settings WHERE key = 'ollamaclip_api_url'");
+        let baseUrl = 'http://localhost:11434/api';
+        if (settings && settings.length > 0) {
+            baseUrl = settings[0].value.replace(/\/$/, '');
+        }
+
+        const response = await fetch(`${baseUrl}/tags`);
+        if (!response.ok) return [];
+        const data = await response.json();
+        return data.models || [];
+    } catch (error) {
+        console.error("[Database] Failed to fetch Ollama models:", error.message);
+        return [];
+    }
+}
+
+/**
+ * Select the best model based on availability and resources
+ */
+export async function getBestAvailableModel() {
+    const models = await fetchOllamaModels();
+    if (!models || models.length === 0) return 'llama3'; // Default fallback
+
+    // Preference list (most capable models for orchestration)
+    const preferences = ['llama3.1', 'llama3', 'mistral', 'phi3', 'gemma2'];
+    
+    // 1. Try to find a direct match from preferences
+    for (const pref of preferences) {
+        const found = models.find(m => m.name.toLowerCase().includes(pref));
+        if (found) return found.name;
+    }
+
+    // 2. If no preferred model, pick the largest one that is likely to fit (under 10GB for safety)
+    const safeModels = models.filter(m => m.size < 10 * 1024 * 1024 * 1024); // 10GB limit
+    if (safeModels.length > 0) {
+        // Sort by size descending to get the most "powerful" safe model
+        safeModels.sort((a, b) => b.size - a.size);
+        return safeModels[0].name;
+    }
+
+    // 3. Absolute fallback
+    return models[0].name;
+}
 
 function ensureWorkspacesRoot() {
     const dir = path.join(__dirname, 'Workspaces');

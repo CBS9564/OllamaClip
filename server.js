@@ -1,5 +1,5 @@
 import express from 'express';
-import { getProjectPath, dbQuery, dbRun, dbGet, ensureProjectDir, ensureAgentDir, getProjectAgentsPath } from './backend_db.js';
+import { getProjectPath, dbQuery, dbRun, dbGet, ensureProjectDir, ensureAgentDir, getProjectAgentsPath, fetchOllamaModels, getBestAvailableModel } from './backend_db.js';
 import cors from 'cors';
 import bodyParser from 'body-parser';
 import fs from 'fs/promises';
@@ -36,6 +36,7 @@ async function resolveAgentPath(agentId, filename) {
 function jsonToMarkdown(agent) {
     return `---
 id: ${agent.id || Date.now().toString()}
+parent_id: ${agent.parentId || ''}
 name: "${agent.name || ''}"
 role: "${agent.role || ''}"
 model: "${agent.model || ''}"
@@ -72,6 +73,7 @@ function markdownToJson(content, filename) {
                 if (v === 'undefined') v = undefined;
 
                 if (k === 'id') agent.id = v || Date.now().toString();
+                if (k === 'parent_id') agent.parentId = v === 'undefined' ? '' : v;
                 if (k === 'name') agent.name = v || 'Unnamed Agent';
                 if (k === 'role') agent.role = v || 'Assistant';
                 if (k === 'model') agent.model = v || 'llama3';
@@ -114,14 +116,56 @@ async function saveAgentInternal(agent) {
         id: agent.id || 'agent_' + Date.now().toString(36) + Math.random().toString(36).substr(2, 5)
     };
 
+    // ENSURE MODEL IS DESCRIPTIVE AND AVAILABLE
+    if (!agentData.model || agentData.model.toLowerCase() === 'auto' || agentData.model.trim() === '') {
+        agentData.model = await getBestAvailableModel();
+        console.log(`[Persistence] Auto-assigned model '${agentData.model}' to agent: ${agentData.name}`);
+    } else {
+        // EXACT NOMENCLATURE CHECK: If the agent provides 'llama3', verify contextually
+        const available = await fetchOllamaModels();
+        const modelLower = agentData.model.toLowerCase();
+        
+        // 1. Try exact case-insensitive match (highest priority)
+        const exactMatch = available.find(m => m.name.toLowerCase() === modelLower);
+        if (exactMatch) {
+            agentData.model = exactMatch.name; // Use the canonical name from Ollama
+        } else {
+            // 2. Try adding ":latest" if not already present
+            if (!modelLower.includes(':')) {
+                const latestMatch = available.find(m => m.name.toLowerCase() === modelLower + ':latest');
+                if (latestMatch) {
+                    agentData.model = latestMatch.name;
+                } else {
+                    // 3. Try prefix match / base name match (e.g., 'llama3.2' matching 'llama3.2:1b')
+                    // If multiple matches exist (like llama3.2:1b and llama3.2:latest), prefix match will pick first
+                    const matches = available.filter(m => m.name.toLowerCase().startsWith(modelLower + ':') || m.name.toLowerCase().split(':')[0] === modelLower);
+                    if (matches.length > 0) {
+                        // Prefer :latest among matches if available, otherwise pick first
+                        const bestMatch = matches.find(m => m.name.toLowerCase().endsWith(':latest')) || matches[0];
+                        console.log(`[Persistence] Remapping agent model '${agentData.model}' to canonical '${bestMatch.name}' (Matched among ${matches.length} candidates)`);
+                        agentData.model = bestMatch.name;
+                    } else if (available.length > 0) {
+                        // 4. Last fallback: if specified model doesn't exist at all, use best
+                        console.warn(`[Persistence] Model '${agentData.model}' not found in available models. Falling back to best available.`);
+                        agentData.model = await getBestAvailableModel();
+                    }
+                }
+            } else if (available.length > 0) {
+                // If it has a tag but wasn't an exact match, it might be a partial path or typo
+                console.warn(`[Persistence] Model '${agentData.model}' not found exactly. Falling back to best available.`);
+                agentData.model = await getBestAvailableModel();
+            }
+        }
+    }
+
     const mdContent = jsonToMarkdown(agentData);
     await fs.writeFile(path.join(agentDir, filename), mdContent, 'utf-8');
     
     // Sync with SQLite
     await dbRun(
-        `INSERT INTO agents_meta (id, project_id, filename) VALUES (?, ?, ?) 
-         ON CONFLICT(id) DO UPDATE SET project_id = excluded.project_id, filename = excluded.filename`,
-        [agentData.id, projectId, filename]
+        `INSERT INTO agents_meta (id, project_id, parent_id, filename) VALUES (?, ?, ?, ?) 
+         ON CONFLICT(id) DO UPDATE SET project_id = excluded.project_id, parent_id = excluded.parent_id, filename = excluded.filename`,
+        [agentData.id, projectId, agentData.parentId || null, filename]
     );
 
     console.log(`[Persistence] Saved agent to ${proj.project_name}/Agent/: ${filename}`);
@@ -181,6 +225,8 @@ app.get('/api/load-agents', async (req, res) => {
                 const content = await fs.readFile(agentPath, 'utf-8');
                 const agent = markdownToJson(content, entry.filename);
                 agent.projectId = entry.project_id;
+                agent.parentId = entry.parent_id;
+                agent.filename = entry.filename; // CRITICAL: Fix for deletion
                 agents.push(agent);
                 seenIds.add(agent.id);
             } catch (e) { console.warn(`[Persistence] Agent file missing at ${agentPath}`); }
@@ -214,6 +260,16 @@ app.get('/api/projects', async (req, res) => {
     }
 });
 
+app.get('/api/best-model', async (req, res) => {
+    try {
+        const best = await getBestAvailableModel();
+        const all = await fetchOllamaModels();
+        res.json({ best, all: all.map(m => m.name) });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
 app.post('/api/projects', async (req, res) => {
     try {
         const { name, context } = req.body;
@@ -224,35 +280,64 @@ app.post('/api/projects', async (req, res) => {
         
         ensureProjectDir(name);
 
+        // DYNAMIC MODEL SELECTION
+        const bestModel = await getBestAvailableModel();
+        const availableModels = await fetchOllamaModels();
+        const modelListStr = availableModels.map(m => m.name).join(', ') || bestModel;
+
         // CREATE CEO AGENT AUTOMATICALLY
         const ceoId = 'agent_ceo_' + Date.now().toString(36);
         const ceoAgent = {
             id: ceoId,
             name: "CEO",
             role: "Chief Executive Officer",
-            model: "llama3", // Default model
+            model: bestModel,
             color: "#6366f1",
             projectId: id,
             systemPrompt: `You are the CEO (Chief Executive Officer) of this project. 
-Your goal is to oversee the project's progress and coordinate other agents.
+Your goal is to analyze the project context, define a strategic roadmap, and coordinate a team of specialized agents.
 
 PROJECT CONTEXT:
 ${context || 'No specific context provided.'}
 
-You have the authority to create a team of agents to help you. 
-To create an agent, use the tag: [AGENT_CREATE: Name | Role | Model | SystemPrompt]
+AVAILABLE MODELS ON SERVER:
+[${modelListStr}]
 
-Example: [AGENT_CREATE: Coder | Backend Developer | llama3 | You are an expert Node.js developer.]`,
+Your first mission is to:
+1. Decompose the project into a list of initial tasks using [TASK_CREATE].
+2. Identify and create the specialized agents needed (e.g., Architect, Developer, Tester) using [AGENT_CREATE].
+3. Assign the tasks to these agents.
+
+⚠️ IMPORTANT: When creating agents with [AGENT_CREATE], choose the most appropriate model from the "AVAILABLE MODELS" list above. If you are unsure, use "${bestModel}".
+
+To create an agent: [AGENT_CREATE: Name | Role | Model | SystemPrompt]
+To create a task: [TASK_CREATE: Title | AgentName | Context]
+
+Always start by defining your team and the high-level plan.`,
             options: {
                 temperature: 0.5,
                 num_ctx: 4096
             }
         };
 
-        await saveAgentInternal(ceoAgent);
+        const result = await saveAgentInternal(ceoAgent);
         console.log(`[Persistence] Auto-created CEO agent for project: ${name}`);
 
-        res.json({ id, name, context: context || '', ceoId, success: true });
+        // INITIAL TASK FOR CEO
+        const taskId = 'task_init_' + Date.now().toString(36);
+        await dbRun(
+            "INSERT INTO tasks (id, agent_id, project_id, title, context, heartbeat, status) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            [taskId, ceoId, id, "Strategic Roadmap & Team Building", "Analyze the project objectives and create the necessary agents and tasks to begin work.", 1, "Planning"]
+        );
+        console.log(`[Persistence] Created initial task for CEO: ${taskId}`);
+
+        res.json({ 
+            id, 
+            name, 
+            context: context || '', 
+            ceo: { ...ceoAgent, filename: result.filename }, 
+            success: true 
+        });
     } catch (error) {
         console.error("[Persistence] Project creation error:", error);
         res.status(500).json({ error: error.message });

@@ -236,7 +236,10 @@ Proceed with the task. Use tags to act.` }
                 if (oTransferMatch) {
                     const targetName = oTransferMatch[1].trim();
                     console.log(`[Orchestration] Transfer match found: "${targetName}"`);
-                    const targetAgent = this.getAgents().find(a => a.name.toLowerCase() === targetName.toLowerCase());
+                    const targetAgent = this.getAgents().find(a => 
+                        a.name.toLowerCase() === targetName.toLowerCase() && 
+                        String(a.projectId) === String(task.projectId)
+                    );
                     if (targetAgent) {
                         console.log(`[Orchestration] Transferring task ${task.id} to ${targetAgent.name} (${targetAgent.id})`);
                         this.updateTask(task.id, { agentId: targetAgent.id, status: `Transferred to ${targetAgent.name}` });
@@ -254,7 +257,10 @@ Proceed with the task. Use tags to act.` }
                     const targetName = cMatch[2].trim();
                     console.log(`[Orchestration] Creation match found: "${title}" for "${targetName}"`);
                     
-                    const targetAgent = this.getAgents().find(a => a.name.toLowerCase() === targetName.toLowerCase());
+                    const targetAgent = this.getAgents().find(a => 
+                        a.name.toLowerCase() === targetName.toLowerCase() && 
+                        String(a.projectId) === String(task.projectId)
+                    );
                     
                     if (targetAgent) {
                         const newTaskId = `task-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
@@ -282,15 +288,17 @@ Proceed with the task. Use tags to act.` }
                 }
 
                 // 3. Agent Creation [AGENT_CREATE: Name | Role | Model | SystemPrompt]
-                const oAgentCreateRegex = /\[?AGENT_CREATE[:\s]\s*([^|\]\n]+)\s*\|\s*([^|\]\n]+)\s*\|\s*([^|\]\n]+)\s*\|\s*([^\]\n]+)\s*\]?/gi;
+                // Supports 3 (Name|Role|Prompt) or 4 (Name|Role|Model|Prompt) parts
+                const oAgentCreateRegex = /\[?AGENT_CREATE[:\s]\s*([^|\]\n]+)\s*\|\s*([^|\]\n]+)\s*\|\s*(?:([^|\]\n]+)\s*\|\s*)?([^\]\n]+)\s*\]?/gi;
                 let acMatch;
                 while ((acMatch = oAgentCreateRegex.exec(fullReply)) !== null) {
                     const aName = acMatch[1].trim();
                     const aRole = acMatch[2].trim();
-                    const aModel = acMatch[3].trim();
+                    // If 4 parts, acMatch[3] is model. If 3 parts, acMatch[3] is undefined and acMatch[4] is prompt.
+                    const aModel = acMatch[3] ? acMatch[3].trim() : 'auto';
                     const aPrompt = acMatch[4].trim();
                     
-                    console.log(`[Orchestration] CEO creating agent: "${aName}" (${aRole})`);
+                    console.log(`[Orchestration] CEO creating agent: "${aName}" (${aRole}) with model: ${aModel}`);
                     
                     fetch(`${API_URL}/save-agent`, {
                         method: 'POST',
@@ -300,7 +308,8 @@ Proceed with the task. Use tags to act.` }
                             role: aRole,
                             model: aModel,
                             systemPrompt: aPrompt,
-                            projectId: task.projectId
+                            projectId: task.projectId,
+                            parentId: agent.id
                         })
                     }).then(() => {
                         console.log(`[Orchestration] Successfully created agent: ${aName}`);

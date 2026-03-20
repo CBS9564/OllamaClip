@@ -1295,3 +1295,123 @@ body {
     color: #fff;
     font-weight: 700;
 }
+
+
+/* -------------------------------------------------------------------------- */
+/*                                Org Chart Tree                              */
+/* -------------------------------------------------------------------------- */
+.org-chart {
+    min-height: 400px;
+    padding: 64px 32px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: flex-start;
+    overflow-x: auto;
+}
+
+.org-tree-wrapper {
+    display: flex;
+    justify-content: center;
+    width: 100%;
+}
+
+.org-node {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    position: relative;
+    padding: 0 10px;
+}
+
+.org-node .agent-card.small-card {
+    width: 180px;
+    padding: 16px;
+    z-index: 10;
+    background: var(--bg-panel);
+    border: 1px solid var(--border-light);
+    border-radius: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    text-align: center;
+    box-shadow: var(--shadow-glass);
+}
+
+.org-children {
+    display: flex;
+    justify-content: center;
+    padding-top: 32px;
+    position: relative;
+    width: 100%;
+}
+
+/* Vertical line from card to child midpoint */
+.org-node.has-children > .agent-card::after {
+    content: '';
+    position: absolute;
+    bottom: -32px;
+    left: 50%;
+    width: 2px;
+    height: 32px;
+    background: var(--border-light);
+    z-index: 1;
+}
+
+/* Vertical line to each child */
+.org-children > .org-node::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 2px;
+    height: 32px;
+    background: var(--border-light);
+    z-index: 1;
+}
+
+/* Horizontal Connector Line */
+.org-children > .org-node::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 2px;
+    background: var(--border-light);
+    z-index: 1;
+}
+
+/* Hide horizontal line wings on edges */
+.org-children > .org-node:first-child::after {
+    left: 50%;
+    width: 50%;
+}
+
+.org-children > .org-node:last-child::after {
+    width: 50%;
+}
+
+.org-children > .org-node:only-child::after {
+    display: none;
+}
+
+/* --- Deletion Confirmation States --- */
+.btn-confirming {
+    background: var(--warning) !important;
+    color: #000 !important;
+    border-color: var(--warning) !important;
+    animation: pulse-warning 1s infinite;
+    font-weight: 700;
+}
+
+@keyframes pulse-warning {
+    0% { transform: scale(0.98); opacity: 0.9; }
+    50% { transform: scale(1.02); opacity: 1; }
+    100% { transform: scale(0.98); opacity: 0.9; }
+}
+
+.btn-danger i.ph-spinner {
+    font-size: 1.1rem;
+}

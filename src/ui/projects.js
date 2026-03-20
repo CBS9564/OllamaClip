@@ -54,25 +54,58 @@ export function renderProjects(container, appState, updateView) {
             // Delete project
             const btnDelete = li.querySelector('.btn-delete');
             if (btnDelete) {
-                btnDelete.addEventListener('click', async () => {
-                    if (confirm(`Are you sure you want to delete the project "${project.name}"? This action cannot be undone.`)) {
-                        try {
-                            const res = await fetch(`${appState.backendUrl}/projects/${project.id}`, { method: 'DELETE' });
-                            if (res.ok) {
-                                appState.projects = appState.projects.filter(p => p.id !== project.id);
-                                if (appState.activeProjectId === project.id) {
-                                    appState.activeProjectId = appState.projects.length > 0 ? appState.projects[0].id : null;
-                                    appState.activeProjectName = appState.projects.length > 0 ? appState.projects[0].name : "No Project";
-                                    window.dispatchEvent(new CustomEvent('ollamaclip_context_changed'));
-                                }
-                                renderList();
-                                updateView();
-                            } else {
-                                alert("Failed to delete project.");
+                btnDelete.addEventListener('click', async (e) => {
+                    e.stopPropagation();
+                    console.log(`[ProjectsUI] Delete clicked for: ${project.name} (ID: ${project.id})`);
+                    
+                    if (btnDelete.dataset.confirming !== 'true') {
+                        // First click: enter confirmation state
+                        btnDelete.dataset.confirming = 'true';
+                        btnDelete.innerHTML = '<i class="ph ph-warning"></i> Confirm?';
+                        btnDelete.classList.add('btn-confirming');
+                        
+                        // Reset after 3 seconds if not clicked again
+                        setTimeout(() => {
+                            if (btnDelete.dataset.confirming === 'true') {
+                                btnDelete.dataset.confirming = 'false';
+                                btnDelete.innerHTML = '<i class="ph ph-trash"></i>';
+                                btnDelete.classList.remove('btn-confirming');
                             }
-                        } catch (e) {
-                            alert("Error deleting project.");
+                        }, 3000);
+                        return;
+                    }
+
+                    // Second click: perform deletion
+                    try {
+                        console.log(`[ProjectsUI] Sending DELETE request to: ${appState.backendUrl}/projects/${project.id}`);
+                        btnDelete.disabled = true;
+                        btnDelete.innerHTML = '<i class="ph ph-spinner ph-spin"></i>';
+
+                        const res = await fetch(`${appState.backendUrl}/projects/${project.id}`, { method: 'DELETE' });
+                        
+                        if (res.ok) {
+                            console.log(`[ProjectsUI] Delete successful for: ${project.id}`);
+                            appState.projects = appState.projects.filter(p => p.id !== project.id);
+                            if (appState.activeProjectId === project.id) {
+                                appState.activeProjectId = appState.projects.length > 0 ? appState.projects[0].id : null;
+                                appState.activeProjectName = appState.projects.length > 0 ? appState.projects[0].name : "No Project";
+                                window.dispatchEvent(new CustomEvent('ollamaclip_context_changed'));
+                            }
+                            window.dispatchEvent(new CustomEvent('ollamaclip_projects_updated'));
+                        } else {
+                            const errData = await res.json().catch(() => ({}));
+                            console.error(`[ProjectsUI] Delete failed:`, errData);
+                            alert(errData.error || "Failed to delete project.");
+                            // Reset button
+                            btnDelete.dataset.confirming = 'false';
+                            btnDelete.innerHTML = '<i class="ph ph-trash"></i>';
+                            btnDelete.classList.remove('btn-confirming');
+                            btnDelete.disabled = false;
                         }
+                    } catch (e) {
+                        console.error(`[ProjectsUI] Network error during delete:`, e);
+                        alert("Error deleting project.");
+                        btnDelete.disabled = false;
                     }
                 });
             }
@@ -98,10 +131,19 @@ export function renderProjects(container, appState, updateView) {
             
             if (data.success) {
                 appState.projects.push({ id: data.id, name: data.name, context: data.context || '' });
+                
+                if (data.ceo) {
+                    appState.agents.push(data.ceo);
+                    localStorage.setItem('ollamaclip_agents', JSON.stringify(appState.agents));
+                    window.dispatchEvent(new CustomEvent('ollamaclip_agents_updated'));
+                }
+
+                if (window.fetchTasks) await window.fetchTasks();
+
                 titleInput.value = '';
                 contextInput.value = '';
-                renderList();
-                updateView();
+                window.dispatchEvent(new CustomEvent('ollamaclip_projects_updated'));
+                window.dispatchEvent(new CustomEvent('ollamaclip_tasks_updated'));
             } else {
                 alert(data.error || "Failed to create project");
             }
@@ -112,6 +154,17 @@ export function renderProjects(container, appState, updateView) {
             btnCreate.innerHTML = '<i class="ph ph-plus"></i> Create';
         }
     });
+
+    // Clean up previous event listener to avoid accumulation
+    if (window._onProjectsUpdatedRef) {
+        window.removeEventListener('ollamaclip_projects_updated', window._onProjectsUpdatedRef);
+    }
+    window._onProjectsUpdatedRef = () => renderList();
+    window.addEventListener('ollamaclip_projects_updated', window._onProjectsUpdatedRef);
+    
+    // Clean up listener if container is re-rendered (though updateView usually nukes container)
+    // In our simplified vanilla system, we'll just ensure we don't leak too many if possible
+    // or rely on updateView nuke.
 
     renderList();
     container.appendChild(clone);

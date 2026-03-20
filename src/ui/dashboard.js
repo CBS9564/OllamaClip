@@ -4,56 +4,101 @@ export function renderDashboard(container, agents, localModels, appStateRef, upd
   const tpl = document.getElementById('tpl-dashboard');
   const clone = tpl.content.cloneNode(true);
   
-  // Update stats
-  const statAgents = clone.querySelector('#stat-active-agents');
-  const statModels = clone.querySelector('#stat-local-models');
-  
-  if (statAgents) statAgents.textContent = agents.length;
-  if (statModels) {
-      if (localModels) {
-          statModels.textContent = localModels.length;
-      } else {
-          statModels.textContent = "Error/Offline";
-          statModels.style.color = "var(--danger)";
+  // 1. Update Stats Function
+  const updateStats = () => {
+      const statAgents = container.querySelector('#stat-active-agents');
+      const statModels = container.querySelector('#stat-local-models');
+      const agentsCount = appStateRef.agents.filter(a => !appStateRef.activeProjectId || a.projectId === appStateRef.activeProjectId).length;
+      
+      if (statAgents) statAgents.textContent = agentsCount;
+      if (statModels) {
+          if (localModels) {
+              statModels.textContent = localModels.length;
+          } else {
+              statModels.textContent = "Offline";
+              statModels.style.color = "var(--danger)";
+          }
       }
-  }
+  };
 
-  // Update Org Chart
-  const orgChartContainer = clone.querySelector('#org-chart-container');
-  if (agents.length > 0 && orgChartContainer) {
-      orgChartContainer.innerHTML = ''; // Clear empty state
+  // 2. Hierarchical Org Chart Functions
+  const buildAgentTree = (flatAgents) => {
+      const map = {};
+      const roots = [];
       
-      const grid = document.createElement('div');
-      grid.style.display = 'grid';
-      grid.style.gridTemplateColumns = 'repeat(auto-fill, minmax(200px, 1fr))';
-      grid.style.gap = '16px';
-      grid.style.width = '100%';
-      
-      agents.forEach(agent => {
-          const card = document.createElement('div');
-          card.className = 'agent-card glass-panel';
-          card.style.padding = '16px';
-          card.style.display = 'flex';
-          card.style.flexDirection = 'column';
-          card.style.gap = '8px';
-          card.style.borderTop = `4px solid ${agent.color || 'var(--accent-primary)'}`;
-          
-          card.innerHTML = `
-            <div style="display: flex; align-items: center; justify-content: space-between;">
-                <strong>${agent.name}</strong>
-                <i class="ph-fill ph-robot" style="color: ${agent.color || 'var(--accent-primary)'}"></i>
-            </div>
-            <div style="font-size: 0.8rem; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.5px;">
-                ${agent.role}
-            </div>
-            <div style="margin-top: 8px; font-size: 0.75rem; background: rgba(0,0,0,0.2); padding: 4px 8px; border-radius: 4px;">
-                Model: ${agent.model}
-            </div>
-          `;
-          grid.appendChild(card);
+      // Initialize map
+      flatAgents.forEach(a => {
+          map[a.id] = { ...a, children: [] };
       });
-      orgChartContainer.appendChild(grid);
-  }
+      
+      // Build tree
+      flatAgents.forEach(a => {
+          if (a.parentId && map[a.parentId]) {
+              map[a.parentId].children.push(map[a.id]);
+          } else {
+              // If no parent or parent not in this project, it's a root
+              roots.push(map[a.id]);
+          }
+      });
+      
+      return roots;
+  };
+
+  const renderNode = (node) => {
+      const nodeEl = document.createElement('div');
+      nodeEl.className = 'org-node';
+      
+      const hasChildren = node.children && node.children.length > 0;
+      if (hasChildren) {
+          nodeEl.classList.add('has-children');
+      }
+
+      const card = document.createElement('div');
+      card.className = 'agent-card glass-panel small-card';
+      card.style.borderTop = `3px solid ${node.color || 'var(--accent-primary)'}`;
+      card.innerHTML = `
+          <div style="display: flex; align-items: center; gap: 8px;">
+              <i class="ph-fill ph-robot" style="color: ${node.color || 'var(--accent-primary)'}; font-size: 0.9rem;"></i>
+              <strong style="font-size: 0.85rem; white-space: nowrap;">${node.name}</strong>
+          </div>
+          <div style="font-size: 0.65rem; color: var(--text-secondary); text-transform: uppercase;">${node.role}</div>
+      `;
+      nodeEl.appendChild(card);
+      
+      if (node.children && node.children.length > 0) {
+          const childrenContainer = document.createElement('div');
+          childrenContainer.className = 'org-children';
+          node.children.forEach(child => {
+              childrenContainer.appendChild(renderNode(child));
+          });
+          nodeEl.appendChild(childrenContainer);
+      }
+      
+      return nodeEl;
+  };
+
+  const updateOrgChart = () => {
+      const orgChartContainer = container.querySelector('#org-chart-container');
+      if (!orgChartContainer) return;
+      
+      const projectAgents = appStateRef.agents.filter(a => !appStateRef.activeProjectId || a.projectId === appStateRef.activeProjectId);
+      
+      if (projectAgents.length > 0) {
+          orgChartContainer.innerHTML = ''; 
+          
+          const treeRoots = buildAgentTree(projectAgents);
+          const treeWrapper = document.createElement('div');
+          treeWrapper.className = 'org-tree-wrapper';
+          
+          treeRoots.forEach(root => {
+              treeWrapper.appendChild(renderNode(root));
+          });
+          
+          orgChartContainer.appendChild(treeWrapper);
+      } else {
+          orgChartContainer.innerHTML = '<p class="empty-msg">No agents in this project context.</p>';
+      }
+  };
 
   // Click on "Available Models" to switch to Models view
   const btnShowModelManager = clone.querySelector('#btn-show-model-manager');
@@ -65,7 +110,7 @@ export function renderDashboard(container, agents, localModels, appStateRef, upd
   }
 
   // Click on "Active Agents" to switch to Agents view
-  const statCardAgents = clone.querySelector('.stat-card:first-child');
+  const statCardAgents = container.querySelector('.stat-card:first-child');
   if (statCardAgents) {
       statCardAgents.style.cursor = 'pointer';
       statCardAgents.title = 'Click to manage agents';
@@ -75,6 +120,19 @@ export function renderDashboard(container, agents, localModels, appStateRef, upd
       });
   }
 
+  // Initial render setup
   container.innerHTML = '';
   container.appendChild(clone);
+  
+  // Real-time updates
+  updateStats();
+  updateOrgChart();
+
+  // Listen for changes
+  const onUpdate = () => {
+      updateStats();
+      updateOrgChart();
+  };
+  window.addEventListener('ollamaclip_agents_updated', onUpdate);
+  window.addEventListener('ollamaclip_context_changed', onUpdate);
 }
