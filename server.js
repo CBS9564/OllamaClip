@@ -92,37 +92,47 @@ function markdownToJson(content, filename) {
     return agent;
 }
 
+// Helper to save agent internally
+async function saveAgentInternal(agent) {
+    if (!agent || !agent.name || !agent.role) {
+        throw new Error("Missing agent name or role");
+    }
+
+    const projectId = agent.projectId || 'default_project';
+    
+    // Resolve Project name for path creation
+    const proj = await dbGet(`SELECT name as project_name FROM projects WHERE id = ?`, [projectId]);
+    if (!proj) throw new Error("Project not found");
+
+    const agentDir = ensureAgentDir(proj.project_name);
+    const safeName = agent.name.replace(/[^a-z0-9]/gi, '_');
+    const safeRole = agent.role.replace(/[^a-z0-9]/gi, '_');
+    const filename = `agent_${safeName}_${safeRole}.md`;
+    
+    const agentData = {
+        ...agent,
+        id: agent.id || 'agent_' + Date.now().toString(36) + Math.random().toString(36).substr(2, 5)
+    };
+
+    const mdContent = jsonToMarkdown(agentData);
+    await fs.writeFile(path.join(agentDir, filename), mdContent, 'utf-8');
+    
+    // Sync with SQLite
+    await dbRun(
+        `INSERT INTO agents_meta (id, project_id, filename) VALUES (?, ?, ?) 
+         ON CONFLICT(id) DO UPDATE SET project_id = excluded.project_id, filename = excluded.filename`,
+        [agentData.id, projectId, filename]
+    );
+
+    console.log(`[Persistence] Saved agent to ${proj.project_name}/Agent/: ${filename}`);
+    return { filename, id: agentData.id };
+}
+
 // Routes
 app.post('/api/save-agent', async (req, res) => {
     try {
-        const agent = req.body;
-        if (!agent || !agent.name || !agent.role) {
-            return res.status(400).json({ error: "Missing agent name or role" });
-        }
-
-        const projectId = agent.projectId || 'default_project';
-        
-        // Resolve Project name for path creation
-        const proj = await dbGet(`SELECT name as project_name FROM projects WHERE id = ?`, [projectId]);
-        if (!proj) return res.status(404).json({ error: "Project not found" });
-
-        const agentDir = ensureAgentDir(proj.project_name);
-        const safeName = agent.name.replace(/[^a-z0-9]/gi, '_');
-        const safeRole = agent.role.replace(/[^a-z0-9]/gi, '_');
-        const filename = `agent_${safeName}_${safeRole}.md`;
-        
-        const mdContent = jsonToMarkdown(agent);
-        await fs.writeFile(path.join(agentDir, filename), mdContent, 'utf-8');
-        
-        // Sync with SQLite
-        await dbRun(
-            `INSERT INTO agents_meta (id, project_id, filename) VALUES (?, ?, ?) 
-             ON CONFLICT(id) DO UPDATE SET project_id = excluded.project_id, filename = excluded.filename`,
-            [agent.id, projectId, filename]
-        );
-
-        console.log(`[Persistence] Saved agent to ${proj.project_name}/Agents/: ${filename}`);
-        res.json({ success: true, filename });
+        const result = await saveAgentInternal(req.body);
+        res.json({ success: true, ...result });
     } catch (error) {
         console.error("[Persistence] Save error:", error);
         res.status(500).json({ error: error.message });
@@ -213,8 +223,38 @@ app.post('/api/projects', async (req, res) => {
         await dbRun("INSERT INTO projects (id, name, context) VALUES (?, ?, ?)", [id, name, context || '']);
         
         ensureProjectDir(name);
-        res.json({ id, name, context: context || '', success: true });
+
+        // CREATE CEO AGENT AUTOMATICALLY
+        const ceoId = 'agent_ceo_' + Date.now().toString(36);
+        const ceoAgent = {
+            id: ceoId,
+            name: "CEO",
+            role: "Chief Executive Officer",
+            model: "llama3", // Default model
+            color: "#6366f1",
+            projectId: id,
+            systemPrompt: `You are the CEO (Chief Executive Officer) of this project. 
+Your goal is to oversee the project's progress and coordinate other agents.
+
+PROJECT CONTEXT:
+${context || 'No specific context provided.'}
+
+You have the authority to create a team of agents to help you. 
+To create an agent, use the tag: [AGENT_CREATE: Name | Role | Model | SystemPrompt]
+
+Example: [AGENT_CREATE: Coder | Backend Developer | llama3 | You are an expert Node.js developer.]`,
+            options: {
+                temperature: 0.5,
+                num_ctx: 4096
+            }
+        };
+
+        await saveAgentInternal(ceoAgent);
+        console.log(`[Persistence] Auto-created CEO agent for project: ${name}`);
+
+        res.json({ id, name, context: context || '', ceoId, success: true });
     } catch (error) {
+        console.error("[Persistence] Project creation error:", error);
         res.status(500).json({ error: error.message });
     }
 });

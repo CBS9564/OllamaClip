@@ -29,7 +29,11 @@ OllamaClip is a high-performance, lightweight web-based orchestration platform f
 - **Local Persistence Bridge**: A built-in Node.js Express server handles secure local file operations, ensuring data sovereignty and privacy.
 - **Settings & Configuration (V4)**: Modify your Ollama Base URL, control model VRAM retention, and manage local data.
 - **Agent Heartbeat System (V10)**: 
-    - **Autonomous Processing**: Agents can now work in the background on assigned tasks via a 30s "Heartbeat" loop.
+    - **Heartbeat Loop**: Agents wake up every 30s to progress their assigned tasks.
+- **Auto-CEO**: Every project starts with a CEO agent who understands the global context.
+- **Orchestration**: Agents can create tasks for each other (`[TASK_CREATE]`) or hire new agents (`[AGENT_CREATE]`).
+- **Task Tail**: Intelligent locking prevents concurrent agent conflicts on a single task.
+- **Stability Queue**: Serialized Ollama requests to prevent server crashes.
     - **Proactive Messaging**: Agents autonomously post progress updates or clarify questions (using `[QUESTION]` tag) to the Inbox.
     - **Auto-Stop Logic**: Agents signal completion with `[DONE]`, automatically closing tasks and stopping the heartbeat.
     - **UI Feedback**: Pulsing heartbeat icons and status badges (Processing, Needs Input) for real-time task tracking.

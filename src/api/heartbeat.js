@@ -14,6 +14,7 @@ export class HeartbeatManager {
         this.intervalId = null;
         this.tickRate = 30000; // 30 seconds default
         this.isProcessing = false;
+        this.runningTasks = new Set(); // Task Tail: prevent concurrent work on same task
     }
 
     start() {
@@ -47,15 +48,20 @@ export class HeartbeatManager {
         this.isProcessing = true;
 
         for (const task of activeTasks) {
+            if (this.runningTasks.has(task.id)) continue; // Already being processed by someone/something
+
             const agent = this.getAgents().find(a => a.id === task.agentId);
             if (!agent) continue;
 
             console.log(`🤖 Heartbeat: Agent ${agent.name} processing task "${task.title}"`);
             
+            this.runningTasks.add(task.id);
             try {
                 await this.processTask(agent, task);
             } catch (error) {
                 console.error(`Heartbeat error for ${agent.name}:`, error);
+            } finally {
+                this.runningTasks.delete(task.id);
             }
         }
 
@@ -71,8 +77,7 @@ export class HeartbeatManager {
         } catch (e) {
             console.error("[Heartbeat] History fetch error:", e);
         }
-        
-        const systemPrompt = `${agent.systemPrompt}
+           const systemPrompt = `${agent.systemPrompt}
         
 ### 🧠 OPERATIONAL ENVIRONMENT:
 - Project: ${task.projectName}
@@ -80,33 +85,27 @@ export class HeartbeatManager {
 - **CURRENT TASK**: "${task.title}"
 - **TASK DETAILS**: ${task.context || 'Follow general project objectives.'}
 
-### 🛠️ COMMAND TOOLS (MANDATORY):
-To continue your autonomous loop, you **MUST** include exactly one of these tags in your response. If you don't, your "Heartbeat" will stop.
+### 🛠️ COMMAND TOOLS:
+You can use these tags in your response to interact with the system:
 
-1. \`[TASK_STATUS: Message]\` : Use this to report what you are doing right now (e.g., "[TASK_STATUS: Researching API documentation]").
-2. \`[TASK_COMPLETE]\` : Use ONLY when the entire task objective is met.
-3. \`[TASK_EDIT: New Title | New Context]\` : Use to refine your task as you progress.
-4. \`[TASK_CREATE: Title | AgentName]\` : Create a sub-task for another agent.
-5. \`[SAVE: filename.ext] Content [/SAVE]\` : Persist code or notes to the workspace.
-6. \`[QUESTION]\` : Use if you are genuinely stuck and need the USER's help.
+1. \`[TASK_STATUS: Message]\` : Report current progress.
+2. \`[TASK_COMPLETE]\` : Mark the task as finished.
+3. \`[TASK_EDIT: New Title | New Context]\` : Refine the task.
+4. \`[TASK_CREATE: Title | AgentName]\` : Create a sub-task for an existing agent.
+5. \`[AGENT_CREATE: Name | Role | Model | SystemPrompt]\` : Create a BRAND NEW agent for the team.
+6. \`[SAVE: filename.ext] Content [/SAVE]\` : Save files to the workspace.
+7. \`[QUESTION]\` : Ask the USER for help.
 
-### 📝 RESPONSE FORMAT EXAMPLE:
-"I have analyzed the requirements. I will now start the implementation.
-[TASK_STATUS: Starting implementation of the login logic]
-[SAVE: login.js] 
-// implementation here...
-[/SAVE]"
-
-### ⚠️ CRITICAL RULE:
-Focus on progression. Be concise. If you provide a generic response without a \`[TAG]\`, you will be deactivated.🎉🏛️🔐`;
+### ⚠️ CRITICAL RULES:
+- Only one agent should work on a task at a time. This task is currently LOCKED to you.
+- Serialize your thoughts. If you need a new specialist, use [AGENT_CREATE].
+- Always include a progress tag to keep the heartbeat alive.`;
 
         const messages = [
             { role: 'system', content: systemPrompt },
-            ...history.slice(-4).map(h => ({ role: h.role, content: h.content })),
+            ...history.slice(-6).map(h => ({ role: h.role, content: h.content })),
             { role: 'user', content: `[SYSTEM HEARTBEAT]
-Current Task: "${task.title}"
-Action Required: Progress this task now. 
-IMPORTANT: Your response MUST contain a COMMAND TAG like [TASK_STATUS: ...] or [TASK_COMPLETE] to trigger the next step. If you do not use a tag, your process will be TERMINATED.` }
+Proceed with the task. Use tags to act.` }
         ];
 
         let fullReply = "";
@@ -193,11 +192,12 @@ IMPORTANT: Your response MUST contain a COMMAND TAG like [TASK_STATUS: ...] or [
                 const transferRegex = /\[TASK_TRANSFER:(.*?)\]/g;
 
                 // Cleanup tags from the cleanedReply for UI display
-                cleanedReply = cleanedReply.replace(/\[?(TASK_STATUS|STATUS|PROGRESS)[:\s]\s*(.*?)\]?/gi, (m, statusLabel, statusText) => `*(Updated status: ${statusText})*`);
+                cleanedReply = cleanedReply.replace(/\[?TASK_STATUS[:\s]\s*(.*?)\]?/gi, (m, statusLabel, statusText) => `*(Updated status: ${statusText})*`);
                 cleanedReply = cleanedReply.replace(/\[?(TASK_COMPLETE|MARK COMPLETED|TASK COMPLETE|FINISHED)\]?/gi, "*(Task Completed)*");
                 cleanedReply = cleanedReply.replace(/\[?TASK_PAUSE\]?/gi, "*(Task Paused)*");
                 cleanedReply = cleanedReply.replace(/\[?TASK_TRANSFER[:\s]\s*(.*?)\]?/gi, (m, name) => `*(Transferred task to: ${name})*`);
                 cleanedReply = cleanedReply.replace(/\[?TASK_CREATE[:\s]\s*([^|\]\n]+)\s*\|\s*([^\]\n]+)\s*\]?/gi, (m, title, name) => `*(Created new task: "${title.trim()}" for ${name.trim()})*`);
+                cleanedReply = cleanedReply.replace(/\[?AGENT_CREATE[:\s]\s*([^|\]\n]+)\s*\|\s*([^|\]\n]+)\s*\|\s*([^|\]\n]+)\s*\|\s*([^\]\n]+)\s*\]?/gi, (m, name, role) => `*(Creating new agent: ${name.trim()} - ${role.trim()})*`);
                 cleanedReply = cleanedReply.replace(/\[DONE\]/g, "*(Finished)*");
 
                 // --- Persistence ---
@@ -281,7 +281,35 @@ IMPORTANT: Your response MUST contain a COMMAND TAG like [TASK_STATUS: ...] or [
                     }
                 }
 
-                // 3. Task Status [TASK_STATUS:Message]
+                // 3. Agent Creation [AGENT_CREATE: Name | Role | Model | SystemPrompt]
+                const oAgentCreateRegex = /\[?AGENT_CREATE[:\s]\s*([^|\]\n]+)\s*\|\s*([^|\]\n]+)\s*\|\s*([^|\]\n]+)\s*\|\s*([^\]\n]+)\s*\]?/gi;
+                let acMatch;
+                while ((acMatch = oAgentCreateRegex.exec(fullReply)) !== null) {
+                    const aName = acMatch[1].trim();
+                    const aRole = acMatch[2].trim();
+                    const aModel = acMatch[3].trim();
+                    const aPrompt = acMatch[4].trim();
+                    
+                    console.log(`[Orchestration] CEO creating agent: "${aName}" (${aRole})`);
+                    
+                    fetch(`${API_URL}/save-agent`, {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({
+                            name: aName,
+                            role: aRole,
+                            model: aModel,
+                            systemPrompt: aPrompt,
+                            projectId: task.projectId
+                        })
+                    }).then(() => {
+                        console.log(`[Orchestration] Successfully created agent: ${aName}`);
+                        window.dispatchEvent(new CustomEvent('ollamaclip_agents_updated'));
+                        showToast(`New agent created: ${aName} (${aRole})`, 'success');
+                    }).catch(e => console.error("[Orchestration] Failed to create agent", e));
+                }
+
+                // 4. Task Status [TASK_STATUS:Message]
                 const oStatusRegex = /\[?(TASK_STATUS|STATUS|PROGRESS)[:\s]\s*([^\]\n]+)\s*\]?/gi;
                 const oStatusMatch = oStatusRegex.exec(fullReply);
                 if (oStatusMatch) {

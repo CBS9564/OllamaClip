@@ -32,13 +32,46 @@ export async function fetchLocalModels() {
 }
 
 /**
- * Chat with a specific model using streaming response
- * @param {string} model - The name of the model (e.g., 'llama2')
- * @param {Array} messages - Chat history array [{role: 'user', content: '...'}]
- * @param {Function} onChunk - Callback for parsing streaming text chunks
- * @param {Function} onComplete - Callback when stream finishes
+ * Simple Request Queue for Ollama to ensure sequential processing
  */
-export async function chatWithModel(model, messages, options = {}, onChunk, onComplete) {
+class OllamaQueue {
+    constructor() {
+        this.queue = [];
+        this.isProcessing = false;
+    }
+
+    async push(task) {
+        return new Promise((resolve, reject) => {
+            this.queue.push({ task, resolve, reject });
+            this.process();
+        });
+    }
+
+    async process() {
+        if (this.isProcessing || this.queue.length === 0) return;
+        
+        this.isProcessing = true;
+        const { task, resolve, reject } = this.queue.shift();
+
+        try {
+            const result = await task();
+            resolve(result);
+        } catch (error) {
+            reject(error);
+        } finally {
+            this.isProcessing = false;
+            // Immediate next process call
+            setTimeout(() => this.process(), 0);
+        }
+    }
+}
+
+const ollamaQueue = new OllamaQueue();
+
+/**
+ * Internal chat function (without queue logic)
+ */
+async function _chatWithModel(model, messages, options = {}, onChunk, onComplete) {
   try {
     const defaultOptions = {
         temperature: 0.7,
@@ -55,8 +88,8 @@ export async function chatWithModel(model, messages, options = {}, onChunk, onCo
         model: model,
         messages: messages,
         stream: true,
-        keep_alive: getKeepAlive(), // V4 Optimization: Dynamic VRAM tuning
-        options: finalOptions // V6 Agent Specific Tuning
+        keep_alive: getKeepAlive(),
+        options: finalOptions
       })
     });
 
@@ -73,7 +106,6 @@ export async function chatWithModel(model, messages, options = {}, onChunk, onCo
       done = readerDone;
       if (value) {
         const chunkStr = decoder.decode(value, { stream: true });
-        // The chunk might contain multiple JSON objects separated by newlines
         const lines = chunkStr.split('\n').filter(line => line.trim() !== '');
         
         for (const line of lines) {
@@ -95,7 +127,15 @@ export async function chatWithModel(model, messages, options = {}, onChunk, onCo
     console.error("Chat error:", error);
     onChunk(`\n\n[Error communicating with model: ${error.message}]`);
     if(onComplete) onComplete();
+    throw error;
   }
+}
+
+/**
+ * Chat with a specific model using streaming response (Serialized via Queue)
+ */
+export async function chatWithModel(model, messages, options = {}, onChunk, onComplete) {
+    return ollamaQueue.push(() => _chatWithModel(model, messages, options, onChunk, onComplete));
 }
 
 /**

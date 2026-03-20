@@ -27,7 +27,8 @@ graph TD
 
     Workspaces --> ProjectA["[Project Name]/"]
     ProjectA --> AgentDir["Agent/"]
-    AgentDir --> AgentMD["Agent_Name.md"]
+    AgentDir --> CEOAgent["agent_CEO_... .md (Auto-created)"]
+    AgentDir --> SubAgents["agent_... .md (Orchestrated)"]
 ```
 
 ## 🗄️ Database Schema (SQLite)
@@ -94,7 +95,8 @@ erDiagram
     - Purges the `task` from the DB.
     - Purges all `chat_messages` linked to that `task_id`.
 
-3. **Autonomous Updates (Heartbeat)**:
-    - Agents use the `HeartbeatManager` every 30s.
-    - They can update task status via `[TASK_STATUS: ...]` or complete tasks via `[TASK_COMPLETE]`.
-    - Every agent update is persisted to the DB and broadcasted to the UI via `ollamaclip_unread_updated`.
+### 🏢 CEO & Orchestration
+1. **Auto-CEO**: Every new project initializes with a **CEO Agent** containing the project context.
+2. **Infinite Team**: The CEO (and other agents) can use `[AGENT_CREATE]` to spawn new specialists.
+3. **Serialized Ollama**: All AI requests are queued to ensure stability and prevent VRAM spikes.
+4. **Task Tail**: A locking system ensures that only one agent works on a specific task at a time, preventing overlapping logic.
