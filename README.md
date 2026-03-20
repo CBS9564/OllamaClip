@@ -42,7 +42,16 @@ OllamaClip is a high-performance, lightweight web-based orchestration platform f
 - **Granular UI Performance (V16)**:
     - **Event-Driven Refreshes**: Optimized the frontend to use an internal event system. Navigation and data updates (Creating agents/tasks/projects) now happen in-place without full-page flickering or redundant re-renders.
     - **Real-time Dashboard**: Organizational charts and stats update gracefully as agents work in the background.
-- **Orchestration**: Agents can create tasks for each other (`[TASK_CREATE]`) or hire new agents (`[AGENT_CREATE]`).
+- **Orchestration (V18/V19)**: 
+    - **JSON-Based Logic**: Replaced legacy bracket tags with structured JSON orchestration using the `erukude/multiagent-orchestrator:1b` model.
+    - **Dynamic Prompt Alignment**: The Orchestrator now dynamically honors custom agent system prompts (from your CEO or Specialists).
+- **Proactive Toolset**: Agents use a formal tool registry:
+    - `create_task`: Delegate work to others.
+    - `create_agent`: Recruit new specialists.
+    - `list_files`: Explore the project workspace structure.
+    - `update_memory`: Persist strategic information across the project.
+    - `save_file`: Write persistent artifacts and documentation.
+    - `update_task`: Directly manage task statuses and completion.
 - **Task Tail**: Intelligent locking prevents concurrent agent conflicts on a single task.
 - **Stability Queue**: Serialized Ollama requests to prevent server crashes.
     - **Proactive Messaging**: Agents autonomously post progress updates or clarify questions (using `[QUESTION]` tag) to the Inbox.

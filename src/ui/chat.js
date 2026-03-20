@@ -13,6 +13,13 @@ export function renderChat(container, agents, appState) {
     const currentChatHeader = clone.querySelector('#current-chat-agent');
     const currentChatSubHeader = clone.querySelector('#current-chat-model');
     const currentProjectFlag = clone.querySelector('#current-chat-project-flag');
+    const thinkingIndicator = clone.querySelector('#chat-thinking-indicator');
+    
+    // Global thinking events for this view
+    const onStart = () => { if (thinkingIndicator) thinkingIndicator.style.display = 'inline-block'; };
+    const onStop = () => { if (thinkingIndicator) thinkingIndicator.style.display = 'none'; };
+    window.addEventListener('ollama_thinking_start', onStart);
+    window.addEventListener('ollama_thinking_stop', onStop);
     
     // Use persistent state if available
     let currentTaskId = appState.activeTaskId || null;
@@ -101,38 +108,26 @@ export function renderChat(container, agents, appState) {
         sidebarList.innerHTML = '';
         const unreads = JSON.parse(localStorage.getItem('ollamaclip_unreads_tasks') || '{}');
 
-        // 1. Add General Project Chat
-        const project = appState.projects.find(p => String(p.id) === String(appState.activeProjectId));
-        const generalId = `project_${appState.activeProjectId}`;
-        const generalUnread = unreads[generalId] ? `<span class="unread-badge">${unreads[generalId]}</span>` : '';
-        const generalBtn = document.createElement('button');
-        generalBtn.className = `nav-item ${currentTaskId === generalId ? 'active' : ''}`;
-        generalBtn.innerHTML = `
-            <div style="display:flex; gap:12px; align-items:center">
-                <i class="ph-fill ph-globe" style="color:var(--accent-primary)"></i>
-                <div style="display:flex; flex-direction:column; align-items:flex-start; overflow: hidden; flex: 1">
-                    <span style="font-weight: 600">General Project Chat</span>
-                    <span style="font-size:0.65rem; color:var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; width: 100%">${(project?.lastMessage || 'No messages yet').slice(0, 35)}${(project?.lastMessage?.length > 35) ? '...' : ''}</span>
-                </div>
-            </div>
-            ${generalUnread}`;
-        generalBtn.addEventListener('click', () => {
-            currentTaskId = generalId;
-            appState.activeTaskId = generalId; // Persist
-            currentTask = { id: generalId, title: 'General Project Chat', projectName: appState.activeProjectName };
-            renderSidebar();
-            currentChatHeader.textContent = "General Project Chat";
-            currentChatSubHeader.textContent = appState.activeProjectName;
-            inputArea.placeholder = "Message the team (use @AgentName to target)...";
-            inputArea.disabled = false;
-            btnSend.disabled = false;
-            loadChatHistory(generalId);
-        });
-        sidebarList.appendChild(generalBtn);
-
-        // 2. Filter tasks for current project
+        // 1. Filter tasks for current project
         const tasks = appState.tasks || [];
         const projectTasks = tasks.filter(t => String(t.projectId) === String(appState.activeProjectId));
+
+        // Auto-select first task if none selected or if it was the removed general chat
+        if (projectTasks.length > 0 && (!currentTaskId || String(currentTaskId).startsWith('project_'))) {
+            const firstTask = projectTasks[0];
+            currentTaskId = firstTask.id;
+            appState.activeTaskId = firstTask.id;
+            currentTask = firstTask;
+            
+            // Setup the view for this task
+            const agent = agents.find(a => a.id === firstTask.agentId);
+            currentChatHeader.textContent = firstTask.title;
+            currentChatSubHeader.textContent = agent ? `Assigned to: ${agent.name}` : 'Unassigned';
+            inputArea.placeholder = `Discussing: ${firstTask.title}...`;
+            inputArea.disabled = false;
+            btnSend.disabled = false;
+            loadChatHistory(firstTask.id);
+        }
 
         if (projectTasks.length === 0 && tasks.length > 0) {
             // If project is selected but has no tasks, we still show General
@@ -267,6 +262,7 @@ export function renderChat(container, agents, appState) {
         isGenerating = true;
         btnSend.disabled = true;
         btnSend.innerHTML = '<i class="ph ph-spinner ph-spin"></i>';
+        window.dispatchEvent(new CustomEvent('agent_thinking_start', { detail: { agentId: targetAgent.id } }));
 
         const replyDiv = appendMessage('agent', '', targetAgent.name, targetAgent.color);
         const textNode = document.createElement('span');
@@ -300,6 +296,7 @@ export function renderChat(container, agents, appState) {
                 isGenerating = false;
                 btnSend.innerHTML = '<i class="ph-fill ph-paper-plane-right"></i>';
                 btnSend.disabled = false;
+                window.dispatchEvent(new CustomEvent('agent_thinking_stop', { detail: { agentId: targetAgent.id } }));
                 
                 // Save AI Reply to DB
                 fetch(`${appState.backendUrl}/chat`, {
@@ -307,7 +304,7 @@ export function renderChat(container, agents, appState) {
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                         taskId: currentTaskId,
-                        agentId: assignedAgent.id,
+                        agentId: targetAgent.id,
                         role: 'assistant',
                         content: fullReply
                     })

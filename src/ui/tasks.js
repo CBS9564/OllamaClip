@@ -100,13 +100,22 @@ export function renderTasks(container, agents, activeProjectId, appState) {
               li.innerHTML = `
                   <div class="task-checkbox ${task.completed ? 'checked' : ''}"></div>
                   <div class="task-content">
-                      <span class="task-title">${task.title}</span>
+                        <div style="display:flex; align-items:center; gap:8px;">
+                            <span class="task-title">${task.title}</span>
+                            ${task.heartbeat && task.status === 'processing' ? '<i class="ph-fill ph-brain thinking-brain" style="font-size:1rem;" title="AI is actively processing this task"></i>' : ''}
+                        </div>
                       ${task.context ? `<p style="font-size:0.75rem; color:var(--text-muted); margin-top:2px;">${task.context}</p>` : ''}
                       <div class="task-meta">
                           <span class="task-agent" style="background: ${agentInfo.color}20; color: ${agentInfo.color}">
                               <i class="ph-fill ph-robot"></i> ${agentInfo.name}
                           </span>
-                          <span style="color: var(--text-muted)">Created ${new Date(task.createdAt).toLocaleDateString()}</span>
+                          ${task.last_decision ? `
+                            <div class="task-decision" style="margin-left: 12px; color: var(--accent-secondary); font-size: 0.75rem; font-style: italic; display: flex; align-items: center; gap: 4px;">
+                                <i class="ph-fill ph-lightbulb"></i>
+                                <span>${task.last_decision}</span>
+                            </div>
+                          ` : ''}
+                          <span style="color: var(--text-muted); margin-left: auto;">Created ${new Date(task.createdAt).toLocaleDateString()}</span>
                       </div>
                   </div>
                   <div class="task-actions" style="display:flex; gap:8px; align-items:center;">

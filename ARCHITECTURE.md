@@ -63,6 +63,7 @@ erDiagram
         text title
         text context
         text status
+        text last_decision
         boolean heartbeat
         boolean completed
         datetime created_at
@@ -75,6 +76,7 @@ erDiagram
         text role
         text content
         boolean is_proactive
+        text last_decision
         datetime created_at
     }
 

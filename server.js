@@ -1,5 +1,5 @@
 import express from 'express';
-import { getProjectPath, dbQuery, dbRun, dbGet, ensureProjectDir, ensureAgentDir, getProjectAgentsPath, fetchOllamaModels, getBestAvailableModel } from './backend_db.js';
+import { getProjectPath, dbQuery, dbRun, dbGet, ensureProjectDir, ensureAgentDir, getProjectAgentsPath, fetchOllamaModels, getBestAvailableModel, ensureOrchestratorReady } from './backend_db.js';
 import cors from 'cors';
 import bodyParser from 'body-parser';
 import fs from 'fs/promises';
@@ -294,26 +294,22 @@ app.post('/api/projects', async (req, res) => {
             model: bestModel,
             color: "#6366f1",
             projectId: id,
-            systemPrompt: `You are the CEO (Chief Executive Officer) of this project. 
+            systemPrompt: `You are the CEO and Project Orchestrator. 
 Your goal is to analyze the project context, define a strategic roadmap, and coordinate a team of specialized agents.
 
-PROJECT CONTEXT:
-${context || 'No specific context provided.'}
+TOOLS:
+- create_task: { title, agent_id, context }
+- create_agent: { name, role, model, system_prompt }
+- list_files: {}
+- update_memory: { memory: "strategic info" }
+- update_task: { status, completed: bool }
+- save_file: { filename, content }
 
 AVAILABLE MODELS ON SERVER:
 [${modelListStr}]
 
-Your first mission is to:
-1. Decompose the project into a list of initial tasks using [TASK_CREATE].
-2. Identify and create the specialized agents needed (e.g., Architect, Developer, Tester) using [AGENT_CREATE].
-3. Assign the tasks to these agents.
-
-⚠️ IMPORTANT: When creating agents with [AGENT_CREATE], choose the most appropriate model from the "AVAILABLE MODELS" list above. If you are unsure, use "${bestModel}".
-
-To create an agent: [AGENT_CREATE: Name | Role | Model | SystemPrompt]
-To create a task: [TASK_CREATE: Title | AgentName | Context]
-
-Always start by defining your team and the high-level plan.`,
+⚠️ IMPORTANT: When creating agents, choose the most appropriate model from the list above. Default to "${bestModel}".
+Always respond with a JSON object: { action, target, arguments, reason }.`,
             options: {
                 temperature: 0.5,
                 num_ctx: 4096
@@ -429,7 +425,7 @@ app.post('/api/settings', async (req, res) => {
 app.get('/api/tasks', async (req, res) => {
     try {
         const sql = `
-            SELECT t.*, p.name as project_name, p.context as project_context,
+            SELECT t.*, p.name as project_name, p.context as project_context, p.memory as project_memory,
             (SELECT content FROM chat_messages WHERE task_id = t.id ORDER BY created_at DESC LIMIT 1) as last_message
             FROM tasks t
             LEFT JOIN projects p ON t.project_id = p.id
@@ -445,6 +441,7 @@ app.get('/api/tasks', async (req, res) => {
             projectId: t.project_id,
             projectName: t.project_name,
             projectContext: t.project_context,
+            projectMemory: t.project_memory,
             createdAt: t.created_at
         }));
         res.json(mappedTasks);
@@ -455,13 +452,14 @@ app.get('/api/tasks', async (req, res) => {
 
 app.post('/api/tasks', async (req, res) => {
     try {
-        const { id, title, context, agentId, projectId, completed, status } = req.body;
+        const { id, title, context, agentId, projectId, completed, status, heartbeat } = req.body;
         const pId = projectId || 'default_project';
         const st = status || 'open';
+        const hb = heartbeat !== undefined ? (heartbeat ? 1 : 0) : 1; // Default to active heartbeat for new tasks
         
         await dbRun(
-            `INSERT INTO tasks (id, agent_id, project_id, title, context, status, completed) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-            [id, agentId || null, pId, title, context || '', st, completed ? 1 : 0]
+            `INSERT INTO tasks (id, agent_id, project_id, title, context, status, completed, heartbeat) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+            [id, agentId || null, pId, title, context || '', st, completed ? 1 : 0, hb]
         );
         res.json({ success: true, id });
     } catch (error) {
@@ -472,7 +470,7 @@ app.post('/api/tasks', async (req, res) => {
 app.put('/api/tasks/:id', async (req, res) => {
     try {
         const taskId = req.params.id;
-        const { title, context, agentId, heartbeat, completed, status } = req.body;
+        const { title, context, agentId, heartbeat, completed, status, last_decision } = req.body;
         
         let updates = [];
         let params = [];
@@ -483,6 +481,7 @@ app.put('/api/tasks/:id', async (req, res) => {
         if (heartbeat !== undefined) { updates.push('heartbeat = ?'); params.push(heartbeat ? 1 : 0); }
         if (completed !== undefined) { updates.push('completed = ?'); params.push(completed ? 1 : 0); }
         if (status !== undefined) { updates.push('status = ?'); params.push(status); }
+        if (last_decision !== undefined) { updates.push('last_decision = ?'); params.push(last_decision); }
         
         if (updates.length > 0) {
             params.push(taskId);
@@ -578,6 +577,137 @@ app.post('/api/workspace/file', async (req, res) => {
         res.status(500).json({ error: error.message });
     }
 });
+
+app.get('/api/workspace/files/:projectName', async (req, res) => {
+    try {
+        const projectName = req.params.projectName;
+        console.log(`[Workspace] Listing files for project name: "${projectName}"`);
+        const projectPath = getProjectPath(projectName);
+        
+        if (!fs.existsSync(projectPath)) return res.json([]);
+
+        // Recursive file list
+        const getAllFiles = async (dirPath, arrayOfFiles = []) => {
+            const files = await fs.promises.readdir(dirPath, { withFileTypes: true });
+            for (const file of files) {
+                if (file.name === 'node_modules' || file.name === '.git' || file.name === '.gemini') continue;
+                const fullPath = path.join(dirPath, file.name);
+                if (file.isDirectory()) {
+                    await getAllFiles(fullPath, arrayOfFiles);
+                } else {
+                    arrayOfFiles.push(path.relative(projectPath, fullPath));
+                }
+            }
+            return arrayOfFiles;
+        };
+
+        const files = await getAllFiles(projectPath);
+        res.json(files);
+    } catch (error) {
+        console.error("[Workspace] File list error:", error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// --- PROJECT MEMORY & DETAILS ---
+
+app.get('/api/projects/:id', async (req, res) => {
+    try {
+        const project = await dbQuery("SELECT * FROM projects WHERE id = ?", [req.params.id]);
+        if (!project || project.length === 0) return res.status(404).json({ error: "Project not found" });
+        res.json(project[0]);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.put('/api/projects/:id/memory', async (req, res) => {
+    try {
+        const { memory } = req.body;
+        await dbRun("UPDATE projects SET memory = ? WHERE id = ?", [memory, req.params.id]);
+        res.json({ success: true });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// --- ORCHESTRATION Endpoint ---
+
+app.post('/api/orchestrate', async (req, res) => {
+    try {
+        const { state, agent_registryArray, system_prompt } = req.body;
+        
+        // 1. Fetch Global Project Context & Memory
+        const project = await dbQuery("SELECT context, memory FROM projects WHERE id = ?", [state.project_id]);
+        const projectContext = project?.[0]?.context || '';
+        const projectMemory = project?.[0]?.memory || '';
+
+        const settings = await dbQuery("SELECT value FROM settings WHERE key = 'ollamaclip_api_url'");
+        let baseUrl = 'http://localhost:11434/api';
+        if (settings && settings.length > 0) {
+            baseUrl = settings[0].value.replace(/\/$/, '');
+        }
+
+        const toolsDescription = `TOOLS:
+- save_file: { filename, content }
+- create_task: { title, agent_id, context }
+- create_agent: { name, role, model, system_prompt }
+- update_task: { status, completed: bool }
+- update_memory: { memory: "strategic info" }
+- list_files: {}`;
+
+        const projectName = state.project_name || 'Project';
+        const basePrompt = system_prompt ? `${system_prompt}\n\n${toolsDescription}` : `You are the Orchestrator for project "${projectName}".
+Your job is to coordinate specialists to fulfill the project's strategic objective. 
+PROJECT CONTEXT: ${projectContext}
+GLOBAL MEMORY: ${projectMemory}
+Use the following tools via JSON output:
+${toolsDescription}
+
+Always respond with a JSON object: { action, target, arguments, reason }.`;
+        
+        const agent_registry = { agents: agent_registryArray || [] };
+        
+        const messages = [
+            { role: 'system', content: basePrompt },
+            { role: 'user', content: `Analyze the current state and decide the next action.
+            Registry: ${JSON.stringify(agent_registry)}
+            State: ${JSON.stringify(state)}` }
+        ];
+
+        const response = await fetch(`${baseUrl}/chat`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                model: 'erukude/multiagent-orchestrator:1b',
+                messages: messages,
+                stream: false,
+                format: 'json',
+                options: { temperature: 0.1 }
+            })
+        });
+
+        if (!response.ok) throw new Error(`Ollama Error: ${response.statusText}`);
+        
+        const data = await response.json();
+        const content = data.message.content;
+        
+        const jsonMatch = content.match(/\{[\s\S]*\}/);
+        const result = jsonMatch ? JSON.parse(jsonMatch[0]) : JSON.parse(content);
+        
+        // Auto-update memory if model provided it in the response
+        if (result.new_memory && state.project_id) {
+            await dbRun("UPDATE projects SET memory = ? WHERE id = ?", [result.new_memory, state.project_id]);
+        }
+
+        res.json(result);
+    } catch (error) {
+        console.error("[Orchestrator] Error:", error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+ensureOrchestratorReady().catch(console.error);
 
 app.listen(PORT, () => {
     console.log(`\n🚀 [OllamaClip Backend] Persistence Bridge running at http://localhost:${PORT}\n`);

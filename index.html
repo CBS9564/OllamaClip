@@ -59,6 +59,10 @@
             <span class="dot"></span>
             <span>Ollama Connected</span>
           </div>
+          <div id="global-thinking" class="global-thinking">
+            <i class="ph-fill ph-brain thinking-brain"></i>
+            <span>AI Thinking...</span>
+          </div>
         </div>
       </aside>
 
@@ -213,7 +217,10 @@
         <div class="chat-window glass-panel">
           <div class="chat-header" style="justify-content: space-between; display: flex; align-items: center;">
             <div class="chat-title">
-              <h3 id="current-chat-agent">Select an agent</h3>
+              <h3 style="display:flex; align-items:center; gap:8px;">
+                <span id="current-chat-agent">Select an agent</span>
+                <span id="chat-thinking-indicator" style="display:none;"><i class="ph-fill ph-brain thinking-brain" style="font-size:1.1rem;"></i></span>
+              </h3>
               <span class="model-badge" id="current-chat-model"></span>
             </div>
             <div style="display: flex; align-items: center; gap: 12px;">
@@ -355,8 +362,9 @@
                         </div>
 
           <div class="task-list-wrapper">
-             <div class="task-list-header">
+             <div class="task-list-header" style="display:flex; justify-content:space-between; align-items:center;">
                 <h3>Your Projects</h3>
+                <span class="text-muted" style="font-size:0.8rem;">Strategic Memory is auto-updated by Orchestrator-1B</span>
              </div>
              <ul class="task-list" id="projects-list-container">
                 <!-- Injected via JS -->

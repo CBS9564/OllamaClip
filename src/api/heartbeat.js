@@ -1,4 +1,5 @@
 import { chatWithModel } from './ollama.js';
+import { getOrchestrationDecision, executeToolAction } from './orchestrator.js';
 import { showToast } from '../ui/utils.js';
 
 const API_URL = 'http://localhost:3001/api';
@@ -46,26 +47,31 @@ export class HeartbeatManager {
         if (activeTasks.length === 0) return;
 
         this.isProcessing = true;
+        try {
+            const promises = activeTasks.map(async (task) => {
+                if (this.runningTasks.has(task.id)) return;
 
-        for (const task of activeTasks) {
-            if (this.runningTasks.has(task.id)) continue; // Already being processed by someone/something
+                const agent = this.getAgents().find(a => a.id === task.agentId);
+                if (!agent) return;
 
-            const agent = this.getAgents().find(a => a.id === task.agentId);
-            if (!agent) continue;
+                console.log(`🤖 Heartbeat: Agent ${agent.name} processing task "${task.title}"`);
+                
+                this.runningTasks.add(task.id);
+                try {
+                    await this.processTask(agent, task);
+                } catch (error) {
+                    console.error(`Heartbeat error for ${agent.name} on task ${task.id}:`, error);
+                } finally {
+                    this.runningTasks.delete(task.id);
+                }
+            });
 
-            console.log(`🤖 Heartbeat: Agent ${agent.name} processing task "${task.title}"`);
-            
-            this.runningTasks.add(task.id);
-            try {
-                await this.processTask(agent, task);
-            } catch (error) {
-                console.error(`Heartbeat error for ${agent.name}:`, error);
-            } finally {
-                this.runningTasks.delete(task.id);
-            }
+            await Promise.all(promises);
+        } catch (globalError) {
+            console.error("Global Heartbeat Tick Error:", globalError);
+        } finally {
+            this.isProcessing = false;
         }
-
-        this.isProcessing = false;
     }
 
     async processTask(agent, task) {
@@ -77,285 +83,183 @@ export class HeartbeatManager {
         } catch (e) {
             console.error("[Heartbeat] History fetch error:", e);
         }
-           const systemPrompt = `${agent.systemPrompt}
+
+        // 2. Prepare task state for the 1B Orchestrator (Optimized for speed)
+        const state = {
+            project_id: task.projectId,
+            project_name: task.projectName,
+            project_context: task.projectContext,
+            project_memory: task.projectMemory,
+            task_id: task.id,
+            title: task.title,
+            status: task.status,
+            history: history.slice(-5).map(h => ({
+                role: h.role,
+                content: h.content.trim().substring(0, 500) // Prune long messages
+            }))
+        };
+
+        // 3. Get Project Agents Registry
+        const allAgents = this.getAgents().filter(a => a.projectId === task.projectId);
+
+        // 4. Query Orchestrator-1B for the next move
+        console.log(`[Heartbeat] 🧠 Querying Orchestrator-1B for: "${task.title}"`);
+        const decision = await getOrchestrationDecision({ ...state, system_prompt: agent.systemPrompt }, allAgents);
+
+        if (!decision) {
+            console.warn("[Heartbeat] ⚠️ Orchestrator returned no response. Skipping task.");
+            return;
+        }
+
+        console.log(`[Heartbeat] 🏁 Decision: ${decision.action} -> ${decision.target || 'null'} (Reason: ${decision.reason})`);
+
+        // 5. Route based on action
+        await this.updateTask(task.id, { last_decision: decision.reason });
+
+        switch (decision.action) {
+            case 'call_agent':
+                await this.handleAgentCall(decision, agent, task, history);
+                break;
+            case 'call_tool':
+                await this.handleToolCall(decision, agent, task);
+                break;
+            case 'ask_user':
+                await this.updateTask(task.id, { status: 'needs_input', heartbeat: 1 });
+                this.saveOrchestrationMessage(task.id, agent.id, `*(Needs Input: ${decision.reason})*`, true);
+                showToast(`Agent ${agent.name} needs help on "${task.title}"`, 'info');
+                break;
+            case 'finish':
+                const finalMsg = decision.final_answer || `*(Task completed: ${decision.reason})*`;
+                await this.saveOrchestrationMessage(task.id, agent.id, finalMsg, true);
+                await this.updateTaskCompletion(task.id);
+                showToast(`Task "${task.title}" finished.`, 'success');
+                break;
+            default:
+                console.error(`[Heartbeat] Unknown orchestrator action: ${decision.action}`);
+        }
+    }
+
+    /**
+     * Executes a tool via the orchestrator bridge
+     */
+    async handleToolCall(decision, currentAgent, task) {
+        const { target, arguments: args } = decision;
+        console.log(`[Heartbeat] 🛠️ Executing tool: ${target}`);
+
+        try {
+            const result = await executeToolAction(decision, {
+                projectId: task.projectId,
+                projectName: task.projectName,
+                taskId: task.id,
+                currentAgentId: currentAgent.id,
+                agents: this.getAgents()
+            });
+
+            // Save tool result to the chat history (proactive)
+            let resultStr = "Success";
+            if (result && typeof result === 'object') {
+                resultStr = JSON.stringify(result, null, 2);
+            } else if (result !== undefined && result !== null) {
+                resultStr = String(result);
+            }
+
+            // Limit length to avoid blowing up the context for the 1B model
+            if (resultStr.length > 1000) resultStr = resultStr.substring(0, 1000) + "... (truncated)";
+
+            const statusMsg = `*(Tool: ${target})* Result:\n\`\`\`json\n${resultStr}\n\`\`\``;
+            await this.saveOrchestrationMessage(task.id, currentAgent.id, statusMsg, true);
+            
+            // Trigger UI refreshes based on tool
+            if (target === 'create_task') window.dispatchEvent(new CustomEvent('ollamaclip_tasks_updated'));
+            if (target === 'create_agent') window.dispatchEvent(new CustomEvent('ollamaclip_agents_updated'));
+
+        } catch (error) {
+            console.error(`[Heartbeat] Tool execution error (${target}):`, error);
+        }
+    }
+
+    /**
+     * Delegates work to a specialist model
+     */
+    async handleAgentCall(decision, currentAgent, task, history) {
+        const targetName = decision.target;
+        const targetAgent = this.getAgents().find(a => 
+            (a.name === targetName || a.id === targetName) && 
+            a.projectId === task.projectId
+        );
+
+        if (!targetAgent) {
+            console.error(`[Heartbeat] ❌ Target agent "${targetName}" not found.`);
+            return;
+        }
+
+        console.log(`[Heartbeat] 🤖 Delegating to: ${targetAgent.name} (${targetAgent.model})`);
+
+        // Prepare context for the specialist
+        const specialistPrompt = `${targetAgent.systemPrompt}
         
-### 🧠 OPERATIONAL ENVIRONMENT:
-- Project: ${task.projectName}
-- Global Objective: ${task.projectContext || 'No specific objective provided.'}
-- **CURRENT TASK**: "${task.title}"
-- **TASK DETAILS**: ${task.context || 'Follow general project objectives.'}
+PROJECT: ${task.projectName}
+CONTEXT: ${task.projectContext}
+MEMORY: ${task.projectMemory}
+TASK: ${task.title}
+SUB-CONTEXT: ${task.context}
 
-### 🛠️ COMMAND TOOLS:
-You can use these tags in your response to interact with the system:
-
-1. \`[TASK_STATUS: Message]\` : Report current progress.
-2. \`[TASK_COMPLETE]\` : Mark the task as finished.
-3. \`[TASK_EDIT: New Title | New Context]\` : Refine the task.
-4. \`[TASK_CREATE: Title | AgentName]\` : Create a sub-task for an existing agent.
-5. \`[AGENT_CREATE: Name | Role | Model | SystemPrompt]\` : Create a BRAND NEW agent for the team.
-6. \`[SAVE: filename.ext] Content [/SAVE]\` : Save files to the workspace.
-7. \`[QUESTION]\` : Ask the USER for help.
-
-### ⚠️ CRITICAL RULES:
-- Only one agent should work on a task at a time. This task is currently LOCKED to you.
-- Serialize your thoughts. If you need a new specialist, use [AGENT_CREATE].
-- Always include a progress tag to keep the heartbeat alive.`;
+INSTRUCTIONS: ${decision.reason}
+Args: ${JSON.stringify(decision.arguments || {})}`;
 
         const messages = [
-            { role: 'system', content: systemPrompt },
-            ...history.slice(-6).map(h => ({ role: h.role, content: h.content })),
-            { role: 'user', content: `[SYSTEM HEARTBEAT]
-Proceed with the task. Use tags to act.` }
+            { role: 'system', content: specialistPrompt },
+            ...history.slice(-5).map(h => ({ role: h.role, content: h.content })),
+            { role: 'user', content: `Please proceed with the task according to the instructions.` }
         ];
 
+        window.dispatchEvent(new CustomEvent('agent_thinking_start', { detail: { agentId: targetAgent.id } }));
         let fullReply = "";
-        
         await chatWithModel(
-            agent.model,
+            targetAgent.model,
             messages,
-            agent.options || {},
-            (chunk) => {
-                fullReply += chunk;
-                // We could stream this to UI if we want, but for heartbeat 
-                // we'll wait for completion or send it via callback
-            },
-            () => {
-                // --- Initialize reply processing ---
-                let cleanedReply = fullReply;
+            targetAgent.options || {},
+            (chunk) => { fullReply += chunk; },
+            async () => {
+                console.log(`[Heartbeat] Agent ${targetAgent.name} finished response.`);
+                window.dispatchEvent(new CustomEvent('agent_thinking_stop', { detail: { agentId: targetAgent.id } }));
+                await this.saveOrchestrationMessage(task.id, targetAgent.id, fullReply, true);
                 
-                // --- Detect Progress & Control Tags ---
-                const hasComplete = /\[?(TASK_COMPLETE|MARK COMPLETED|TASK COMPLETE|FINISHED)\]?/i.test(fullReply);
-                const hasPause = /\[?TASK_PAUSE\]?/i.test(fullReply);
-                const hasTransfer = /\[?TASK_TRANSFER[:\s]/i.test(fullReply);
-                const hasStatus = /\[?(TASK_STATUS|STATUS|PROGRESS)[:\s]/i.test(fullReply);
-                const hasEdit = /\[?(TASK_EDIT|RENAME TASK|TASK_RENAME)[:\s]/i.test(fullReply);
-                const hasSave = fullReply.includes('[SAVE:') || fullReply.includes('SAVE:');
-                const hasCreate = /\[?TASK_CREATE[:\s]/i.test(fullReply);
-                const hasQuestion = fullReply.includes('QUESTION') || fullReply.includes('[QUESTION]');
-                const hasWaiting = fullReply.includes('WAITING');
+                // Update task status to show someone is working
+                await this.updateTask(task.id, { status: `Working (${targetAgent.name})` });
 
-                let finalStatus = 'processing';
-                let finalHeartbeat = task.heartbeat;
-
-                if (hasComplete) {
-                    finalStatus = 'completed';
-                    finalHeartbeat = 0;
-                } else if (hasPause) {
-                    finalStatus = 'paused';
-                    finalHeartbeat = 0;
-                } else if (hasQuestion || hasWaiting) {
-                    finalStatus = 'needs_input';
-                    finalHeartbeat = 1; // Keep heartbeat on, but it will be filtered out by tick() due to status
-                } else if (!hasStatus && !hasSave && !hasTransfer && !hasEdit && !hasCreate && !hasComplete) {
-                    // AUTO-PAUSE: If no specific action tags were used, assume task is idling/waiting for feedback
-                    console.log(`[Heartbeat] Agent ${agent.name} provided no progress tags. Auto-pausing heartbeat.`);
-                    finalStatus = 'awaiting feedback';
-                    finalHeartbeat = 0;
-                    cleanedReply += "\n\n*(Auto-paused heartbeat: No specific progress tags detected)*";
-                }
-
-                this.updateTask(task.id, { 
-                    status: finalStatus, 
-                    heartbeat: finalHeartbeat,
-                    completed: hasComplete ? 1 : 0 
-                });
-
-                // --- Parse and Sync Files ---
-                const saveRegex = /\[SAVE:([^\]]+)\]([\s\S]*?)\[\/SAVE\]/img;
-                let match;
-                // cleanedReply already initialized above
-
-                while ((match = saveRegex.exec(fullReply)) !== null) {
-                    const filename = match[1].trim();
-                    const content = match[2].trim();
-                    
-                    console.log(`[Heartbeat] Agent ${agent.name} saving file: ${filename}`);
-                    
-                    fetch(`${API_URL}/workspace/file`, {
-                        method: 'POST',
-                        headers: {'Content-Type': 'application/json'},
-                        body: JSON.stringify({
-                            filename,
-                            content,
-                            projectName: task.projectName
-                        })
-                    }).catch(e => console.error("Failed to save agent file", e));
-                    
-                    // Optional: remove tag from UI display
-                    cleanedReply = cleanedReply.replace(match[0], `*(Saved file: ${filename})*`);
-                }
-
-                // 2. Task Control Tags (Already handled by the new logic above, but we still want to clean the UI text)
-                const statusRegex = /\[TASK_STATUS:(.*?)\]/g;
-                const completeRegex = /\[TASK_COMPLETE\]/g;
-                const pauseRegex = /\[TASK_PAUSE\]/g;
-                const transferRegex = /\[TASK_TRANSFER:(.*?)\]/g;
-
-                // Cleanup tags from the cleanedReply for UI display
-                cleanedReply = cleanedReply.replace(/\[?TASK_STATUS[:\s]\s*(.*?)\]?/gi, (m, statusLabel, statusText) => `*(Updated status: ${statusText})*`);
-                cleanedReply = cleanedReply.replace(/\[?(TASK_COMPLETE|MARK COMPLETED|TASK COMPLETE|FINISHED)\]?/gi, "*(Task Completed)*");
-                cleanedReply = cleanedReply.replace(/\[?TASK_PAUSE\]?/gi, "*(Task Paused)*");
-                cleanedReply = cleanedReply.replace(/\[?TASK_TRANSFER[:\s]\s*(.*?)\]?/gi, (m, name) => `*(Transferred task to: ${name})*`);
-                cleanedReply = cleanedReply.replace(/\[?TASK_CREATE[:\s]\s*([^|\]\n]+)\s*\|\s*([^\]\n]+)\s*\]?/gi, (m, title, name) => `*(Created new task: "${title.trim()}" for ${name.trim()})*`);
-                cleanedReply = cleanedReply.replace(/\[?AGENT_CREATE[:\s]\s*([^|\]\n]+)\s*\|\s*([^|\]\n]+)\s*\|\s*([^|\]\n]+)\s*\|\s*([^\]\n]+)\s*\]?/gi, (m, name, role) => `*(Creating new agent: ${name.trim()} - ${role.trim()})*`);
-                cleanedReply = cleanedReply.replace(/\[DONE\]/g, "*(Finished)*");
-
-                // --- Persistence ---
-                // Save proactive message to database
-                fetch(`${API_URL}/chat`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        taskId: task.id,
-                        agentId: agent.id,
-                        role: 'assistant',
-                        content: cleanedReply,
-                        isProactive: true
-                    })
-                }).catch(err => console.error("[Heartbeat] Persistence error:", err));
-
-                // Notify UI to display the proactive thought/action
+                // UI notification
                 if (this.onProactiveMessage) {
                     this.onProactiveMessage({
                         role: 'agent',
-                        text: cleanedReply,
-                        agentName: agent.name,
-                        agentColor: agent.color || 'var(--accent-primary)',
+                        text: fullReply,
+                        agentName: targetAgent.name,
+                        agentColor: targetAgent.color || 'var(--accent-primary)',
                         isProactive: true,
                         taskTitle: task.title,
                         taskId: task.id
                     });
                 }
-
-                // --- Execute Orchestration Commands ---
-                console.log(`[Orchestration] Checking for commands in reply from ${agent.name}...`);
-                
-                // 1. Task Transfer [TASK_TRANSFER:AgentName]
-                const oTransferRegex = /\[?TASK_TRANSFER[:\s]\s*([^\]\n]+)\s*\]?/gi;
-                const oTransferMatch = oTransferRegex.exec(fullReply);
-                if (oTransferMatch) {
-                    const targetName = oTransferMatch[1].trim();
-                    console.log(`[Orchestration] Transfer match found: "${targetName}"`);
-                    const targetAgent = this.getAgents().find(a => 
-                        a.name.toLowerCase() === targetName.toLowerCase() && 
-                        String(a.projectId) === String(task.projectId)
-                    );
-                    if (targetAgent) {
-                        console.log(`[Orchestration] Transferring task ${task.id} to ${targetAgent.name} (${targetAgent.id})`);
-                        this.updateTask(task.id, { agentId: targetAgent.id, status: `Transferred to ${targetAgent.name}` });
-                        showToast(`Task "${task.title}" transferred to ${targetAgent.name}`, 'info');
-                    } else {
-                        console.warn(`[Orchestration] Could not find target agent: "${targetName}"`);
-                    }
-                }
-
-                // 2. Task Creation [TASK_CREATE:Title | AgentName]
-                const oCreateRegex = /\[?TASK_CREATE[:\s]\s*([^|\]\n]+)\s*\|\s*([^\]\n]+)\s*\]?/gi;
-                let cMatch;
-                while ((cMatch = oCreateRegex.exec(fullReply)) !== null) {
-                    const title = cMatch[1].trim();
-                    const targetName = cMatch[2].trim();
-                    console.log(`[Orchestration] Creation match found: "${title}" for "${targetName}"`);
-                    
-                    const targetAgent = this.getAgents().find(a => 
-                        a.name.toLowerCase() === targetName.toLowerCase() && 
-                        String(a.projectId) === String(task.projectId)
-                    );
-                    
-                    if (targetAgent) {
-                        const newTaskId = `task-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
-                        console.log(`[Orchestration] Agent ${agent.name} creating task: "${title}" for ${targetAgent.name} (ID: ${newTaskId})`);
-                        
-                        fetch(`${API_URL}/tasks`, {
-                            method: 'POST',
-                            headers: {'Content-Type': 'application/json'},
-                            body: JSON.stringify({
-                                id: newTaskId,
-                                title: title,
-                                agentId: targetAgent.id,
-                                projectId: task.projectId || 'default_project',
-                                status: 'open',
-                                completed: 0
-                            })
-                        }).then(() => {
-                            console.log(`[Orchestration] Successfully created task: ${newTaskId}`);
-                            window.dispatchEvent(new CustomEvent('ollamaclip_tasks_updated'));
-                            showToast(`New task created: "${title}" for ${targetAgent.name}`, 'success');
-                        }).catch(e => console.error("[Orchestration] Failed to create task", e));
-                    } else {
-                        console.warn(`[Orchestration] Could not find creator target agent: "${targetName}"`);
-                    }
-                }
-
-                // 3. Agent Creation [AGENT_CREATE: Name | Role | Model | SystemPrompt]
-                // Supports 3 (Name|Role|Prompt) or 4 (Name|Role|Model|Prompt) parts
-                const oAgentCreateRegex = /\[?AGENT_CREATE[:\s]\s*([^|\]\n]+)\s*\|\s*([^|\]\n]+)\s*\|\s*(?:([^|\]\n]+)\s*\|\s*)?([^\]\n]+)\s*\]?/gi;
-                let acMatch;
-                while ((acMatch = oAgentCreateRegex.exec(fullReply)) !== null) {
-                    const aName = acMatch[1].trim();
-                    const aRole = acMatch[2].trim();
-                    // If 4 parts, acMatch[3] is model. If 3 parts, acMatch[3] is undefined and acMatch[4] is prompt.
-                    const aModel = acMatch[3] ? acMatch[3].trim() : 'auto';
-                    const aPrompt = acMatch[4].trim();
-                    
-                    console.log(`[Orchestration] CEO creating agent: "${aName}" (${aRole}) with model: ${aModel}`);
-                    
-                    fetch(`${API_URL}/save-agent`, {
-                        method: 'POST',
-                        headers: {'Content-Type': 'application/json'},
-                        body: JSON.stringify({
-                            name: aName,
-                            role: aRole,
-                            model: aModel,
-                            systemPrompt: aPrompt,
-                            projectId: task.projectId,
-                            parentId: agent.id
-                        })
-                    }).then(() => {
-                        console.log(`[Orchestration] Successfully created agent: ${aName}`);
-                        window.dispatchEvent(new CustomEvent('ollamaclip_agents_updated'));
-                        showToast(`New agent created: ${aName} (${aRole})`, 'success');
-                    }).catch(e => console.error("[Orchestration] Failed to create agent", e));
-                }
-
-                // 4. Task Status [TASK_STATUS:Message]
-                const oStatusRegex = /\[?(TASK_STATUS|STATUS|PROGRESS)[:\s]\s*([^\]\n]+)\s*\]?/gi;
-                const oStatusMatch = oStatusRegex.exec(fullReply);
-                if (oStatusMatch) {
-                    const newStatus = oStatusMatch[2].trim();
-                    console.log(`[Orchestration] Updating status for task ${task.id}: "${newStatus}"`);
-                    this.updateTask(task.id, { status: newStatus });
-                }
-
-                // 4. Task Completion [TASK_COMPLETE]
-                if (/\[?(TASK_COMPLETE|MARK COMPLETED|TASK COMPLETE|FINISHED)\]?/i.test(fullReply)) {
-                    console.log(`[Orchestration] Completing task ${task.id}`);
-                    this.updateTaskCompletion(task.id);
-                    showToast(`Agent ${agent.name} completed task: "${task.title}"`, 'success');
-                }
-
-                // 5. Task Edit [TASK_EDIT:Title | Context]
-                const oEditRegex = /\[?(TASK_EDIT|RENAME TASK|TASK_RENAME)[:\s]\s*([^|\]\n]+)\s*\|\s*([^\]\n]+)\s*\]?/gi;
-                const oEditMatch = oEditRegex.exec(fullReply);
-                if (oEditMatch) {
-                    const newTitle = oEditMatch[2].trim();
-                    const newContext = oEditMatch[3].trim();
-                    console.log(`[Orchestration] Editing task ${task.id}: "${newTitle}"`);
-                    this.updateTask(task.id, { title: newTitle, context: newContext });
-                    showToast(`Agent ${agent.name} redefined task: "${newTitle}"`, 'info');
-                }
-
-                // Global event for chat UI to catch and flag with task
-                window.dispatchEvent(new CustomEvent('ollamaclip_new_message', {
-                    detail: { 
-                        agent: agent, 
-                        message: cleanedReply,
-                        taskId: task.id,
-                        taskTitle: task.title
-                    }
-                }));
             }
         );
+    }
+
+    /**
+     * Helper to save a message and notify UI
+     */
+    async saveOrchestrationMessage(taskId, agentId, content, isProactive) {
+        try {
+            await fetch(`${API_URL}/chat`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ taskId, agentId, role: 'assistant', content, isProactive })
+            });
+
+            const agent = this.getAgents().find(a => a.id === agentId);
+            window.dispatchEvent(new CustomEvent('ollamaclip_new_message', {
+                detail: { agent, message: content, taskId }
+            }));
+        } catch (e) { console.error("[Heartbeat] Message save error:", e); }
     }
 
     async updateTask(taskId, updates) {

@@ -76,6 +76,14 @@ const db = new sqlite3.Database(dbPath, (err) => {
                 if (err && !err.message.includes("duplicate column name")) console.log("[Database] parent_id column already exists in agents_meta");
             });
 
+            db.run("ALTER TABLE projects ADD COLUMN memory TEXT DEFAULT ''", (err) => {
+                if (err && !err.message.includes("duplicate column name")) console.log("[Database] Memory column already exists in projects");
+            });
+
+            db.run("ALTER TABLE tasks ADD COLUMN last_decision TEXT DEFAULT ''", (err) => {
+                if (err && !err.message.includes("duplicate column name")) console.log("[Database] last_decision column already exists in tasks");
+            });
+
             ensureWorkspacesRoot();
         });
     }
@@ -128,6 +136,42 @@ export async function getBestAvailableModel() {
 
     // 3. Absolute fallback
     return models[0].name;
+}
+
+/**
+ * Ensure the orchestrator model is pulled and ready
+ */
+export async function ensureOrchestratorReady() {
+    const modelName = 'erukude/multiagent-orchestrator:1b';
+    const models = await fetchOllamaModels();
+    const exists = models.some(m => m.name === modelName);
+
+    if (!exists) {
+        console.log(`[Database] Orchestrator model ${modelName} not found. Pulling...`);
+        try {
+            const settings = await dbQuery("SELECT value FROM settings WHERE key = 'ollamaclip_api_url'");
+            let baseUrl = 'http://localhost:11434/api';
+            if (settings && settings.length > 0) {
+                baseUrl = settings[0].value.replace(/\/$/, '');
+            }
+
+            const response = await fetch(`${baseUrl}/pull`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ model: modelName, stream: false })
+            });
+
+            if (response.ok) {
+                console.log(`[Database] Successfully pulled ${modelName}`);
+            } else {
+                console.error(`[Database] Failed to pull ${modelName}: ${response.statusText}`);
+            }
+        } catch (error) {
+            console.error(`[Database] Error pulling ${modelName}:`, error.message);
+        }
+    } else {
+        console.log(`[Database] Orchestrator model ${modelName} is ready.`);
+    }
 }
 
 function ensureWorkspacesRoot() {

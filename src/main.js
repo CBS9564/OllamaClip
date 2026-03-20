@@ -204,6 +204,15 @@ async function init() {
   // Bind New Agent Button
   btnNewAgent.addEventListener('click', () => openAgentWizard());
 
+  // 5. Global Thinking Indicator (Red Brain)
+  const thinkingIndicator = document.getElementById('global-thinking');
+  window.addEventListener('ollama_thinking_start', () => {
+      thinkingIndicator?.classList.add('active');
+  });
+  window.addEventListener('ollama_thinking_stop', () => {
+      thinkingIndicator?.classList.remove('active');
+  });
+
   // Initial Render
   updateView();
 }

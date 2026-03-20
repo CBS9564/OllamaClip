@@ -1415,3 +1415,76 @@ body {
 .btn-danger i.ph-spinner {
     font-size: 1.1rem;
 }
+
+/* -------------------------------------------------------------------------- */
+/*                               Orchestrator UI                              */
+/* -------------------------------------------------------------------------- */
+.project-memory-section {
+    margin-top: 16px;
+    padding: 16px;
+    background: rgba(99, 102, 241, 0.05);
+    border: 1px dashed var(--accent-primary);
+    border-radius: 12px;
+}
+
+.project-memory-textarea {
+    width: 100%;
+    height: 100px;
+    background: transparent;
+    border: none;
+    color: var(--text-secondary);
+    font-family: var(--font-family);
+    font-size: 0.9rem;
+    resize: none;
+    outline: none;
+}
+
+.task-decision {
+    font-size: 0.75rem;
+    color: var(--accent-secondary);
+    font-style: italic;
+    margin-top: 4px;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.task-decision i {
+    font-size: 0.9rem;
+}
+
+/* -------------------------------------------------------------------------- */
+/*                          Thinking Brain Indicator                         */
+/* -------------------------------------------------------------------------- */
+.thinking-brain {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: #ff4d4d; /* Red Brain */
+    font-size: 1.2rem;
+    animation: brain-pulse 1.5s ease-in-out infinite;
+    filter: drop-shadow(0 0 5px rgba(255, 77, 77, 0.4));
+}
+
+@keyframes brain-pulse {
+    0% { transform: scale(1); opacity: 0.8; }
+    50% { transform: scale(1.15); opacity: 1; filter: drop-shadow(0 0 10px rgba(255, 77, 77, 0.6)); }
+    100% { transform: scale(1); opacity: 0.8; }
+}
+
+.global-thinking {
+    display: none;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+    margin-top: 12px;
+    padding: 6px 10px;
+    background: rgba(255, 77, 77, 0.1);
+    border-radius: 8px;
+    border: 1px solid rgba(255, 77, 77, 0.2);
+}
+
+.global-thinking.active {
+    display: flex;
+}

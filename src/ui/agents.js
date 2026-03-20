@@ -27,8 +27,13 @@ export function renderAgents(container, agents, onEdit, onDelete) {
             card.innerHTML = `
                 <div style="display: flex; justify-content: space-between; align-items: flex-start;">
                     <div style="display: flex; align-items: center; gap: 12px;">
-                        <div style="width: 40px; height: 40px; border-radius: 10px; background: ${agent.color}20; display: flex; align-items: center; justify-content: center; color: ${agent.color}; font-size: 1.25rem;">
-                            <i class="ph ph-robot"></i>
+                        <div style="position: relative;">
+                            <div style="width: 40px; height: 40px; border-radius: 10px; background: ${agent.color}20; display: flex; align-items: center; justify-content: center; color: ${agent.color}; font-size: 1.25rem;">
+                                <i class="ph ph-robot"></i>
+                            </div>
+                            <div id="agent-thinking-${agent.id}" class="agent-thinking-bubble" style="display:none; position:absolute; top:-6px; right:-6px; background:var(--bg-page); border-radius:50%; padding:2px; border:1px solid rgba(255,77,77,0.3); box-shadow:0 0 10px rgba(255,77,77,0.2);">
+                                <i class="ph-fill ph-brain thinking-brain" style="font-size:0.85rem;"></i>
+                            </div>
                         </div>
                         <div>
                             <h3 style="font-size: 1.1rem; font-weight: 600;">${agent.name}</h3>
@@ -106,6 +111,18 @@ export function renderAgents(container, agents, onEdit, onDelete) {
     // Handle updates (e.g. from CEO creating an agent or another event)
     const onAgentsUpdated = () => renderGrid();
     window.addEventListener('ollamaclip_agents_updated', onAgentsUpdated);
+
+    const onAgentStart = (e) => {
+        const el = container.querySelector(`#agent-thinking-${e.detail.agentId}`);
+        if (el) el.style.display = 'block';
+    };
+    const onAgentStop = (e) => {
+        const el = container.querySelector(`#agent-thinking-${e.detail.agentId}`);
+        if (el) el.style.display = 'none';
+    };
+
+    window.addEventListener('agent_thinking_start', onAgentStart);
+    window.addEventListener('agent_thinking_stop', onAgentStop);
 
     renderGrid();
     container.innerHTML = '';

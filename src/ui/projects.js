@@ -29,15 +29,54 @@ export function renderProjects(container, appState, updateView) {
                 <div class="task-info">
                     <span class="task-title" style="font-weight: 600;">${project.name}</span>
                     <span class="task-meta">${isProtected ? 'Protected Root Project' : 'Custom Project'}</span>
-                    ${project.context ? `<p style="font-size:0.75rem; color:var(--text-muted); margin-top:4px; max-width:400px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${project.context}</p>` : ''}
+                    ${project.context ? `<p style="font-size:0.75rem; color:var(--text-muted); margin-top:4px;">${project.context}</p>` : ''}
+                    
+                    <div class="project-memory-section">
+                        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
+                            <label style="font-size:0.7rem; font-weight:700; color:var(--accent-primary); letter-spacing:0.05em;">STRATEGIC MEMORY (1B BRAIN)</label>
+                            <button class="btn btn-sm btn-save-memory" style="padding:2px 6px; font-size:0.7rem; background:rgba(255,255,255,0.05);" title="Save Memory">
+                                <i class="ph ph-floppy-disk"></i> Save
+                            </button>
+                        </div>
+                        <textarea class="project-memory-textarea" placeholder="Insights, architecture patterns, and long-term project knowledge stay here...">${project.memory || ''}</textarea>
+                    </div>
                 </div>
-                <div class="task-actions">
+                <div class="task-actions" style="align-self: flex-start; margin-top: 10px;">
                     <button class="btn btn-sm btn-secondary btn-switch" title="Set Active Context" ${project.id === appState.activeProjectId ? 'disabled' : ''}>
                         <i class="ph ph-check-circle"></i> ${project.id === appState.activeProjectId ? 'Active' : 'Switch To'}
                     </button>
                     ${!isProtected ? `<button class="btn btn-sm btn-danger btn-delete" title="Delete Project"><i class="ph ph-trash"></i></button>` : ''}
                 </div>
             `;
+
+            // Memory Save Logic
+            const btnSaveMem = li.querySelector('.btn-save-memory');
+            const txtMem = li.querySelector('.project-memory-textarea');
+            btnSaveMem.addEventListener('click', async () => {
+                const newMem = txtMem.value.trim();
+                btnSaveMem.disabled = true;
+                btnSaveMem.innerHTML = '<i class="ph ph-spinner ph-spin"></i>';
+                
+                try {
+                    const res = await fetch(`${appState.backendUrl}/projects/${project.id}/memory`, {
+                        method: 'PUT',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({ memory: newMem })
+                    });
+                    if (res.ok) {
+                        project.memory = newMem;
+                        btnSaveMem.innerHTML = '<i class="ph ph-check"></i> Saved';
+                        setTimeout(() => {
+                            btnSaveMem.disabled = false;
+                            btnSaveMem.innerHTML = '<i class="ph ph-floppy-disk"></i> Save';
+                        }, 2000);
+                    }
+                } catch(e) {
+                    console.error("Failed to save project memory", e);
+                    btnSaveMem.disabled = false;
+                    btnSaveMem.innerHTML = '<i class="ph ph-warning"></i> Error';
+                }
+            });
 
             // Switch active project
             const btnSwitch = li.querySelector('.btn-switch');
