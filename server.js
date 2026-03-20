@@ -305,6 +305,9 @@ TOOLS:
 - update_task: { status, completed: bool }
 - save_file: { filename, content }
 
+COMMUNICATION:
+- To speak to the user, use { "action": "ask_user", "reason": "message" }.
+
 AVAILABLE MODELS ON SERVER:
 [${modelListStr}]
 
@@ -654,7 +657,10 @@ app.post('/api/orchestrate', async (req, res) => {
 - create_agent: { name, role, model, system_prompt }
 - update_task: { status, completed: bool }
 - update_memory: { memory: "strategic info" }
-- list_files: {}`;
+- list_files: {}
+
+COMMUNICATION:
+- To speak to the human/user, use { "action": "ask_user", "reason": "your message here" }.`;
 
         const projectName = state.project_name || 'Project';
         const basePrompt = system_prompt ? `${system_prompt}\n\n${toolsDescription}` : `You are the Orchestrator for project "${projectName}".
@@ -670,9 +676,11 @@ Always respond with a JSON object: { action, target, arguments, reason }.`;
         
         const messages = [
             { role: 'system', content: basePrompt },
-            { role: 'user', content: `Analyze the current state and decide the next action.
-            Registry: ${JSON.stringify(agent_registry)}
-            State: ${JSON.stringify(state)}` }
+            { role: 'user', content: `Current Project State: ${JSON.stringify(state)}
+            
+Analyze the project state and determine the best NEXT ACTION.
+Respond ONLY with a valid JSON object in the schema: { action, target, arguments, reason }.
+DO NOT output any normal conversational text outside of the JSON object.` }
         ];
 
         const response = await fetch(`${baseUrl}/chat`, {
@@ -692,8 +700,20 @@ Always respond with a JSON object: { action, target, arguments, reason }.`;
         const data = await response.json();
         const content = data.message.content;
         
-        const jsonMatch = content.match(/\{[\s\S]*\}/);
-        const result = jsonMatch ? JSON.parse(jsonMatch[0]) : JSON.parse(content);
+        // Robust Parsing Logic
+        let result;
+        try {
+            const jsonMatch = content.match(/\{[\s\S]*\}/);
+            result = jsonMatch ? JSON.parse(jsonMatch[0]) : JSON.parse(content);
+        } catch (e) {
+            console.warn("[Orchestrator] JSON Parse Failed. Fallback to ask_user:", content);
+            result = {
+                action: 'ask_user',
+                target: 'user',
+                arguments: {},
+                reason: content.substring(0, 500)
+            };
+        }
         
         // Auto-update memory if model provided it in the response
         if (result.new_memory && state.project_id) {

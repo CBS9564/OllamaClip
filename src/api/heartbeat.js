@@ -104,7 +104,9 @@ export class HeartbeatManager {
 
         // 4. Query Orchestrator-1B for the next move
         console.log(`[Heartbeat] 🧠 Querying Orchestrator-1B for: "${task.title}"`);
+        window.dispatchEvent(new CustomEvent('agent_thinking_start', { detail: { agentId: agent.id } }));
         const decision = await getOrchestrationDecision({ ...state, system_prompt: agent.systemPrompt }, allAgents);
+        window.dispatchEvent(new CustomEvent('agent_thinking_stop', { detail: { agentId: agent.id } }));
 
         if (!decision) {
             console.warn("[Heartbeat] ⚠️ Orchestrator returned no response. Skipping task.");

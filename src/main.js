@@ -462,5 +462,14 @@ function formatBytes(bytes, decimals = 1) {
     return `${parseFloat((bytes / Math.pow(k, i)).toFixed(dm))} ${sizes[i]}`;
 }
 
+// Global Thinking Indicator toggle
+const globalThinking = document.getElementById('global-thinking');
+window.addEventListener('agent_thinking_start', () => {
+    if (globalThinking) globalThinking.classList.add('active');
+});
+window.addEventListener('agent_thinking_stop', () => {
+    if (globalThinking) globalThinking.classList.remove('active');
+});
+
 // Boot
 init();

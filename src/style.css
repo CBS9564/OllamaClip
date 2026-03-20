@@ -303,6 +303,35 @@ body {
   border-radius: 20px;
 }
 
+/* --- Thinking States --- */
+.global-thinking {
+    display: none;
+    align-items: center;
+    gap: 10px;
+    padding: 12px;
+    background: rgba(255, 77, 77, 0.05);
+    border: 1px solid rgba(255, 77, 77, 0.1);
+    border-radius: 8px;
+    margin-top: 12px;
+    transition: all 0.3s ease;
+}
+.global-thinking.active {
+    display: flex;
+    animation: fadeIn 0.3s ease-out;
+}
+
+.thinking-brain {
+    color: #ff4d4d;
+    font-size: 1.1rem;
+    animation: pulse-brain 1.5s infinite ease-in-out;
+}
+
+@keyframes pulse-brain {
+    0% { transform: scale(1); opacity: 0.7; }
+    50% { transform: scale(1.2); opacity: 1; filter: drop-shadow(0 0 8px rgba(255, 77, 77, 0.4)); }
+    100% { transform: scale(1); opacity: 0.7; }
+}
+
 /* -------------------------------------------------------------------------- */
 /*                                Dashboard View                              */
 /* -------------------------------------------------------------------------- */
